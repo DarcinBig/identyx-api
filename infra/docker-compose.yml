@@ -1,0 +1,224 @@
+version: "3.9"
+
+services:
+
+  # ─────────────────────────────────────────────
+  # GATEWAY — Single entry point, port 8100
+  # ─────────────────────────────────────────────
+  gateway:
+    build:
+      context: ../gateway
+      dockerfile: Dockerfile
+    container_name: identyx-gateway
+    ports:
+      - "8100:8100"
+    env_file: ../.env
+    environment:
+      USER_SERVICE_URL: http://user-service:8001
+      AUTH_SERVICE_URL: http://auth-service:8002
+      TOKEN_SERVICE_URL: http://token-service:8003
+      SESSION_SERVICE_URL: http://session-service:8004
+      EMAIL_SERVICE_URL: http://email-service:8005
+    depends_on:
+      - auth-service
+      - user-service
+      - session-service
+      - token-service
+    networks:
+      - identyx-network
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # AUTH SERVICE — Register / Login / Logout
+  # ─────────────────────────────────────────────
+  auth-service:
+    build:
+      context: ../services/auth-service
+      dockerfile: Dockerfile
+    container_name: identyx-auth
+    ports:
+      - "8002:8002"
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql://identyx:${POSTGRES_PASSWORD}@postgres-auth:5432/identyx_auth
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - identyx-network
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # USER SERVICE — User profiles
+  # ─────────────────────────────────────────────
+  user-service:
+    build:
+      context: ../services/user-service
+      dockerfile: Dockerfile
+    container_name: identyx-users
+    ports:
+      - "8001:8001"
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql://identyx:${POSTGRES_PASSWORD}@postgres-users:5432/identyx_users
+    depends_on:
+      postgres-users:
+        condition: service_healthy
+    networks:
+      - identyx-network
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # SESSION SERVICE — Sessions and refresh tokens
+  # ─────────────────────────────────────────────
+  session-service:
+    build:
+      context: ../services/session-service
+      dockerfile: Dockerfile
+    container_name: identyx-sessions
+    ports:
+      - "8004:8004"
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql://identyx:${POSTGRES_PASSWORD}@postgres-sessions:5432/identyx_sessions
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres-sessions:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - identyx-network
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # TOKEN SERVICE — JWT generation / validation
+  # ─────────────────────────────────────────────
+  token-service:
+    build:
+      context: ../services/token-service
+      dockerfile: Dockerfile
+    container_name: identyx-tokens
+    ports:
+      - "8003:8003"
+    env_file: ../.env
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - identyx-network
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # EMAIL SERVICE — Sending emails
+  # ─────────────────────────────────────────────
+  email-service:
+    build:
+      context: ../services/email-service
+      dockerfile: Dockerfile
+    container_name: identyx-emails
+    ports:
+      - "8005:8005"
+    env_file: ../.env
+    networks:
+      - identyx-network
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # DATABASES — One instance per service
+  # ─────────────────────────────────────────────
+  postgres-auth:
+    image: postgres:16-alpine
+    container_name: identyx-db-auth
+    environment:
+      POSTGRES_USER: identyx
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: identyx_auth
+    volumes:
+      - pgdata-auth:/var/lib/postgresql/data
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identyx -d identyx_auth"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  postgres-users:
+    image: postgres:16-alpine
+    container_name: identyx-db-users
+    environment:
+      POSTGRES_USER: identyx
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: identyx_users
+    volumes:
+      - pgdata-users:/var/lib/postgresql/data
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identyx -d identyx_users"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  postgres-sessions:
+    image: postgres:16-alpine
+    container_name: identyx-db-sessions
+    environment:
+      POSTGRES_USER: identyx
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: identyx_sessions
+    volumes:
+      - pgdata-sessions:/var/lib/postgresql/data
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identyx -d identyx_sessions"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # REDIS — Cache, sessions, rate limiting
+  # ─────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: identyx-redis
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
+      - redisdata:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+# ─────────────────────────────────────────────
+# VOLUMES persistent
+# ─────────────────────────────────────────────
+volumes:
+  pgdata-auth:
+  pgdata-users:
+  pgdata-sessions:
+  redisdata:
+
+# ─────────────────────────────────────────────
+# NETWORK internal insulated
+# ─────────────────────────────────────────────
+networks:
+  identyx-network:
+    driver: bridge
