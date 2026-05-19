@@ -1,0 +1,14 @@
+[project]
+name = "session-services"
+version = "0.1.0"
+description = "Identyx — Session Management Service"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "alembic>=1.18.4",
+    "asyncpg>=0.31.0",
+    "fastapi[standard]>=0.136.1",
+    "psycopg[binary]>=3.3.4",
+    "redis>=7.4.0",
+    "sqlalchemy>=2.0.49",
+]
