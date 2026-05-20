@@ -1,4 +1,4 @@
-version: "3.9"
+# version: "3.9"
 
 services:
 
@@ -14,11 +14,11 @@ services:
       - "8100:8100"
     env_file: ../.env
     environment:
-      USER_SERVICE_URL: http://user-service:8001
-      AUTH_SERVICE_URL: http://auth-service:8002
-      TOKEN_SERVICE_URL: http://token-service:8003
-      SESSION_SERVICE_URL: http://session-service:8004
-      EMAIL_SERVICE_URL: http://email-service:8005
+      USER_SERVICE_URL: http://user-services:8001
+      AUTH_SERVICE_URL: http://auth-services:8002
+      TOKEN_SERVICE_URL: http://token-services:8003
+      SESSION_SERVICE_URL: http://session-services:8004
+      EMAIL_SERVICE_URL: http://email-services:8005
     depends_on:
       - auth-service
       - user-service
@@ -33,7 +33,7 @@ services:
   # ─────────────────────────────────────────────
   auth-service:
     build:
-      context: ../services/auth-service
+      context: ../services/auth-services
       dockerfile: Dockerfile
     container_name: identyx-auth
     ports:
@@ -56,7 +56,7 @@ services:
   # ─────────────────────────────────────────────
   user-service:
     build:
-      context: ../services/user-service
+      context: ../services/user-services
       dockerfile: Dockerfile
     container_name: identyx-users
     ports:
@@ -76,7 +76,7 @@ services:
   # ─────────────────────────────────────────────
   session-service:
     build:
-      context: ../services/session-service
+      context: ../services/session-services
       dockerfile: Dockerfile
     container_name: identyx-sessions
     ports:
@@ -99,8 +99,11 @@ services:
   # ─────────────────────────────────────────────
   token-service:
     build:
-      context: ../services/token-service
+      context: ../services/token-services
       dockerfile: Dockerfile
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     container_name: identyx-tokens
     ports:
       - "8003:8003"
@@ -119,7 +122,7 @@ services:
   # ─────────────────────────────────────────────
   email-service:
     build:
-      context: ../services/email-service
+      context: ../services/email-services
       dockerfile: Dockerfile
     container_name: identyx-emails
     ports:

@@ -1,10 +1,18 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 import httpx
+import logging
 
 from app.core.config import get_settings
+from app.middleware.logging import LoggingMiddleware
+from app.middleware.errors import ErrorHandlingMiddleware
+from app.routes.auth import router as auth_router
+from app.routes.users import router as users_router
+from app.routes.sessions import router as sessions_router
+from app.routes.tokens import router as tokens_router
 
 settings = get_settings()
+logger = logging.getLogger("gateway")
 
 # HTTP client shared between all requests
 # Initialized at startup, closed at shutdown
@@ -13,11 +21,18 @@ http_client: httpx.AsyncClient | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global http_client
-    http_client = httpx.AsyncClient(timeout=30.0)
-    print("[Gateway] starting...")
+    http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(
+            connect=5.0,        # connection timeout to a service
+            read=30.0,          # response read timeout
+            write=10.0,         # body writing timeout
+            pool=5.0,           # pool connection timeout
+        )
+    )
+    logger.info("[Gateway] started — listening on port 8100")
     yield
     await http_client.aclose()
-    print("[Gateway] shutdown.")
+    logger.info("[Gateway] shutdown.")
 
 app = FastAPI(
     title="Identyx API Gateway",
@@ -28,6 +43,26 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+# --- Middlewares -------------------------------------------
+# The order is important: the middleware declared last
+# is executed first on the incoming request.
+#
+# Order of execution on the request:
+#   ErrorHandlingMiddleware → LoggingMiddleware → route handler
+#
+# Order of execution on the response:
+#   route handler → LoggingMiddleware → ErrorHandlingMiddleware
+
+app.add_middleware(LoggingMiddleware)
+app.add_middleware(ErrorHandlingMiddleware)
+
+# --- Routers -----------------------------------------------
+app.include_router(auth_router)
+app.include_router(users_router)
+app.include_router(sessions_router)
+app.include_router(tokens_router)
+
+# --- Health check ------------------------------------------
 @app.get("/health", tags=["health"])
 async def health_check():
     return {

@@ -1,0 +1,64 @@
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
+import httpx
+
+from app.core.config import get_settings
+
+settings = get_settings()
+router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+
+async def _proxy(request: Request, path: str) -> JSONResponse:
+    """Forward to session-service"""
+    from app.main import http_client
+
+    target_url = f"{settings.session_service_url}{path}"
+    body = await request.body()
+    headers = {
+        key: value
+        for key, value in request.headers.items()
+        if key.lower() not in ("host", "content-length")
+    }
+
+    try:
+        response = await http_client.request(
+            method=request.method,
+            url=target_url,
+            content=body,
+            headers=headers,
+            params=dict(request.query_params),
+        )
+        return JSONResponse(
+            content=response.json() if response.content else None,
+            status_code=response.status_code,
+        )
+    except httpx.TimeoutException:
+        return JSONResponse(
+            status_code=504,
+            content={"error": "Session service timeout"},
+        )
+    except httpx.ConnectError:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Session service unavailable"},
+        )
+
+@router.get("/")
+async def list_sessions(request: Request):
+    """GET /sessions → session-service"""
+    return await _proxy(request, "/sessions/")
+
+@router.get("/{session_id}")
+async def get_session(request: Request, session_id: str):
+    """GET /sessions/{session_id} → session-service"""
+    return await _proxy(request, f"/sessions/{session_id}")
+
+@router.delete("/revoke-all")
+async def revoke_all_sessions(request: Request):
+    """DELETE /sessions/revoke-all → session-service"""
+    return await _proxy(request, "/sessions/revoke-all")
+
+@router.delete("/{session_id}")
+async def delete_session(request: Request, session_id: str):
+    """DELETE /sessions/{session_id} → session-service"""
+    return await _proxy(request, f"/sessions/{session_id}")

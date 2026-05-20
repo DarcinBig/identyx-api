@@ -9,7 +9,7 @@ settings = get_settings()
 # We replace postgresql:// with postgresql+asyncpg://
 _db_url = settings.database_url.replace(
     "postgresql://",
-    "postgresql+asyncpg://",
+    "postgresql+psycopg://",
 )
 
 engine = create_async_engine(
