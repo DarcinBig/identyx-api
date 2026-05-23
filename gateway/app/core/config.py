@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     environment: str = "development"
 
     # URLs of internal services
-    user_service_url: str = "http://localhost:8081"
+    user_service_url: str = "http://localhost:8001"
     auth_service_url: str = "http://localhost:8002"
     token_service_url: str = "http://localhost:8003"
     session_service_url: str = "http://localhost:8004"

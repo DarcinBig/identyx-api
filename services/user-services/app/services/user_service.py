@@ -1,0 +1,215 @@
+from fastapi import HTTPException, UploadFile, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.repositories.user_repo import UserRepository
+from app.schemas.user import (
+    UserCreate,
+    UserUpdate,
+    UserResponse,
+    AvatarResponse,
+    UserListResponse
+)
+from app.storage.service import StorageService
+from app.core.config import get_settings
+
+settings = get_settings()
+
+class UserService:
+    """
+    User service business logic.
+
+    Manages:
+        - CRUD operations on users
+        - Uploading/deleting/reverting avatars to default settings
+    """
+    def __init__(self, db: AsyncSession):
+        self.repo = UserRepository(db)
+        self.storage = StorageService()
+
+    async def create_user(self, data: UserCreate) -> UserResponse:
+        """
+        Creates a new user.
+        The profile picture is automatically resolved as "default"
+        """
+        if await self.repo.get_by_email(data.email):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email already registered",
+            )
+        if await self.repo.get_by_username(data.username):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Username already taken",
+            )
+        user = await self.repo.create(data)
+        return UserResponse.from_user(user)
+
+    async def get_user_by_id(self, user_id: str) -> UserResponse:
+        user = await self.repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+        return UserResponse.from_user(user)
+
+    async def get_user_by_email(self, email: str) -> UserResponse:
+        """Internal endpoint for auth-service"""
+        user = await self.repo.get_by_email(email)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+        return UserResponse.from_user(user)
+
+    async def update_user(self, user_id: str, data: UserUpdate) -> UserResponse:
+        existing_user = await self.repo.get_by_id(user_id)
+        if not existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+        if data.email and data.email.lower() != existing_user.email:
+            if await self.repo.get_by_email(data.email):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Email already registered",
+                )
+        if data.username and data.username != existing_user.username:
+            if await self.repo.get_by_username(data.username):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Username already taken",
+                )
+        user = await self.repo.update(user_id, data)
+        return UserResponse.from_user(user)
+
+    async def delete_user(self, user_id: str) -> dict:
+        # Also remove the avatar if the user had one.
+        user = await self.repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+        if user.avatar_provider == "default":
+            await self.storage.delete_avatar(user_id)
+
+        deleted = await self.repo.delete(user_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+        return {"message": "User deleted successfully"}
+
+    async def list_users(self, page: int = 1, page_size: int = 20) -> UserListResponse:
+        users = await self.repo.get_all(page=page, page_size=page_size)
+        total = await self.repo.count()
+        return UserListResponse(
+            users=[UserResponse.from_user(user) for user in users],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    async def upload_avatar(self, user_id: str, file: UploadFile) -> AvatarResponse:
+        """
+        Upload an avatar for a user.
+
+        Flow:
+            1. Verifies that the user exists
+            2. Validates the file (type + size) via StorageService
+            3. Uploads to GitHub (or future provider)
+            4. Updates avatar_url and avatar_provider in the database
+            5. Returns the raw public URL
+
+        The existing file is automatically overwritten
+        (same filename = same user_id).
+        """
+        user = await self.repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+
+        # Upload via the active provider (GitHub for V1)
+        raw_url = await self.storage.upload_avatar(
+            user_id=user_id,
+            file=file,
+        )
+
+        # DB update
+        await self.repo.update_avatar(
+            user_id=user_id,
+            avatar_url=raw_url,
+            avatar_provider="upload",
+        )
+
+        return AvatarResponse(
+            avatar_url=raw_url,
+            avatar_provider="upload",
+            message="Avatar uploaded successfully",
+        )
+
+    async def delete_avatar(self, user_id: str) -> AvatarResponse:
+        """
+        Removes a user's avatar and reverts to the default photo.
+
+        Flow:
+            1. Checks that the user exists
+            2. Deletes the file from storage (if provider = upload)
+            3. Sets avatar_url to None and avatar_provider to "default" in the database
+            4. Returns the URL of the default avatar
+
+            If the user already had the default photo, there's no error —
+            the default URL is simply returned.
+
+        Future note: if the provider is "google", "linkedin", etc.,
+        the system will also revert to "default" without affecting the external storage.
+        """
+        user = await self.repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+
+        # Remove from storage only if it was a user upload
+        if user.avatar_provider == "upload":
+            await self.storage.delete_avatar(user_id)
+
+        # Reset to default in database
+        await self.repo.update_avatar(
+            user_id=user_id,
+            avatar_url=None,
+            avatar_provider="default",
+        )
+
+        default_url = settings.get_default_avatar_url()
+        return AvatarResponse(
+            avatar_url=default_url,
+            avatar_provider="default",
+            message="Avatar reset to default",
+        )
+
+    async def get_avatar_url(self, user_id: str) -> AvatarResponse:
+        """
+        Returns the raw URL of the user's avatar.
+        Always a valid URL — never None.
+        """
+        user = await self.repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+
+        url = user.avatar_url or settings.get_default_avatar_url()
+        return AvatarResponse(
+            avatar_url=url,
+            avatar_provider=user.avatar_provider,
+            message="Avatar URL retrieved",
+        )

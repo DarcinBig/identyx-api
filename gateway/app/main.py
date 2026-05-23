@@ -41,6 +41,7 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
+    redirect_slashes=False,
 )
 
 # --- Middlewares -------------------------------------------
@@ -63,7 +64,7 @@ app.include_router(sessions_router)
 app.include_router(tokens_router)
 
 # --- Health check ------------------------------------------
-@app.get("/health", tags=["health"])
+@app.get("/health", tags=["health"], operation_id="check")
 async def health_check():
     return {
         "service": "Identyx Gateway",

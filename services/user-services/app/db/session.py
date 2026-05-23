@@ -5,12 +5,9 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-# SQLAlchemy requires asyncpg as its async driver
-# We replace postgresql:// with postgresql+asyncpg://
-_db_url = settings.database_url.replace(
-    "postgresql://",
-    "postgresql+psycopg://",
-)
+# SQLAlchemy requires psycopg as its async driver
+# We replace postgresql:// with postgres+psycopg://
+_db_url = settings.database_url.replace("postgresql://", "postgresql+psycopg://")
 
 engine = create_async_engine(
     _db_url,

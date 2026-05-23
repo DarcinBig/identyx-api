@@ -24,11 +24,11 @@ class LoggingMiddleware(BaseHTTPMiddleware):
     """
     async def dispatch(self, request: Request, call_next):
         start = time.perf_counter()
-
         response = await call_next(request)
         duration_ms = round((time.perf_counter() - start) * 1000, 2)
+
         logger.info(
-            "%s %s %sms",
+            "%s %s %s %sms",
             request.method,
             request.url.path,
             response.status_code,

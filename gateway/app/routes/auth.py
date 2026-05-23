@@ -62,22 +62,22 @@ async def _proxy(request: Request, path: str) -> JSONResponse:
             content={"error": "Auth service unavailable"},
         )
 
-@router.post("/register")
+@router.post("/register", operation_id="register")
 async def register(request: Request):
     """POST /auth/register -> auth-service"""
     return await _proxy(request, "/auth/register")
 
-@router.post("/login")
+@router.post("/login", operation_id="login")
 async def login(request: Request):
     """POST /auth/login -> auth-service"""
     return await _proxy(request, "/auth/login")
 
-@router.post("/logout")
+@router.post("/logout", operation_id="logout")
 async def logout(request: Request):
     """POST /auth/logout -> auth-service"""
     return await _proxy(request, "/auth/logout")
 
-@router.post("/refresh")
+@router.post("/refresh", operation_id="refresh-token")
 async def refresh(request: Request):
     """POST /auth/refresh -> auth-service"""
     return await _proxy(request, "/auth/refresh")

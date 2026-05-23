@@ -42,30 +42,44 @@ async def _proxy(request: Request, path: str) -> JSONResponse:
             content={"error": "User service unavailable"},
         )
 
-@router.get("/me")
+@router.get("/me", operation_id="me")
 async def get_me(request: Request):
     """GET /users/me -> user-service"""
     return await _proxy(request, "/users/me")
 
-@router.get("/{user_id}")
+@router.get("/{user_id}", operation_id="user-id")
 async def get_user(request: Request, user_id: str):
     """GET /users/{user_id} -> user-service"""
     return await _proxy(request, f"/users/{user_id}")
 
-@router.post("/")
+@router.post("/", operation_id="create")
 async def create_user(request: Request):
     """POST /users -> user-service"""
     return await _proxy(request, "/users")
 
-@router.patch("/{user_id}")
+@router.patch("/{user_id}", operation_id="update")
 async def update_user(request: Request, user_id: str):
     """PATCH /users/{user_id} -> user-service"""
     return await _proxy(request, f"/users/{user_id}")
 
-@router.delete("/{user_id}")
+@router.delete("/{user_id}", operation_id="delete")
 async def delete_user(request: Request, user_id: str):
     """DELETE /users/{user_id} -> user-service"""
     return await _proxy(request, f"/users/{user_id}")
+
+@router.post("/{user_id}/avatar", operation_id="upload-avatar")
+async def upload_avatar(request: Request, user_id: str):
+    return await _proxy(request, f"/users/{user_id}/avatar")
+
+
+@router.get("/{user_id}/avatar", operation_id="avatar-url")
+async def get_avatar(request: Request, user_id: str):
+    return await _proxy(request, f"/users/{user_id}/avatar")
+
+
+@router.delete("/{user_id}/avatar", operation_id="reset-avatar")
+async def delete_avatar(request: Request, user_id: str):
+    return await _proxy(request, f"/users/{user_id}/avatar")
 
 
 
