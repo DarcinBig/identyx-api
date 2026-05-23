@@ -43,22 +43,22 @@ async def _proxy(request: Request, path: str) -> JSONResponse:
             content={"error": "Session service unavailable"},
         )
 
-@router.get("/")
+@router.get("/", operation_id="index")
 async def list_sessions(request: Request):
     """GET /sessions → session-service"""
     return await _proxy(request, "/sessions/")
 
-@router.get("/{session_id}")
+@router.get("/{session_id}", operation_id="session-id")
 async def get_session(request: Request, session_id: str):
     """GET /sessions/{session_id} → session-service"""
     return await _proxy(request, f"/sessions/{session_id}")
 
-@router.delete("/revoke-all")
+@router.delete("/revoke-all", operation_id="revoke-all")
 async def revoke_all_sessions(request: Request):
     """DELETE /sessions/revoke-all → session-service"""
     return await _proxy(request, "/sessions/revoke-all")
 
-@router.delete("/{session_id}")
+@router.delete("/{session_id}", operation_id="delete")
 async def delete_session(request: Request, session_id: str):
     """DELETE /sessions/{session_id} → session-service"""
     return await _proxy(request, f"/sessions/{session_id}")

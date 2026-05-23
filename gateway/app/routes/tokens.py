@@ -42,17 +42,17 @@ async def _proxy(request: Request, path: str) -> JSONResponse:
             content={"error": "Token service unavailable"},
         )
 
-@router.post("/generate")
+@router.post("/generate", operation_id="generate")
 async def generate_token(request: Request):
     """POST /tokens/generate → token-service"""
     return await _proxy(request, "/tokens/generate")
 
-@router.post("/verify")
+@router.post("/verify", operation_id="verify")
 async def verify_token(request: Request):
     """POST /tokens/verify → token-service"""
     return await _proxy(request, "/tokens/verify")
 
-@router.post("/refresh")
+@router.post("/refresh", operation_id="refresh")
 async def refresh_token(request: Request):
     """POST /tokens/refresh → token-service"""
     return await _proxy(request, "/tokens/refresh")
