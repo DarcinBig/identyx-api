@@ -40,8 +40,12 @@ services:
       - "8002:8002"
     env_file: ../.env
     environment:
-      DATABASE_URL: postgresql://identyx:${POSTGRES_PASSWORD}@postgres-auth:5432/identyx_auth
-      REDIS_URL: redis://redis:6379
+#      DATABASE_URL: postgresql://identyx:${POSTGRES_PASSWORD}@postgres-auth:5432/identyx_auth
+      - POSTGRES_HOST=postgres-auth
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=identyx_auth
+      - REDIS_URL=redis://redis:6379
     depends_on:
       postgres-auth:
         condition: service_healthy
@@ -87,8 +91,12 @@ services:
       - "8004:8004"
     env_file: ../.env
     environment:
-      DATABASE_URL: postgresql://identyx:${POSTGRES_PASSWORD}@postgres-sessions:5432/identyx_sessions
-      REDIS_URL: redis://redis:6379
+#      DATABASE_URL: postgresql://identyx:${POSTGRES_PASSWORD}@postgres-sessions:5432/identyx_sessions
+      - POSTGRES_HOST=postgres-sessions
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=identyx_sessions
+      - REDIS_URL=redis://redis:6379
     depends_on:
       postgres-sessions:
         condition: service_healthy
@@ -204,7 +212,7 @@ services:
       - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
       - redisdata:/data
     ports:
-      - "6379:6379"
+      - "63790:6379"  # 63790 exposes Redis on my host.
     networks:
       - identyx-network
     healthcheck:

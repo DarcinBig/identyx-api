@@ -19,7 +19,7 @@ def get_user_service(db: AsyncSession = Depends(get_db)) -> UserService:
 # --- CRUD --------------------------------------------------------------
 
 @router.post(
-    "",
+    "/",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new user",

@@ -1,7 +1,9 @@
 # This router receives all /auth/* requests and forwards them to auth-service
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse
 import httpx
+
+import app.http as http_state
 
 from app.core.config import get_settings
 
@@ -23,8 +25,11 @@ async def _proxy(request: Request, path: str) -> JSONResponse:
     :param path:
     :return:
     """
-    from app.main import http_client
-
+    if http_state.client is None:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "Gateway not ready"},
+        )
     target_url = f"{settings.auth_service_url}{path}"
 
     # Read the body (may be empty on GET)
@@ -39,7 +44,7 @@ async def _proxy(request: Request, path: str) -> JSONResponse:
     }
 
     try:
-        response = await http_client.request(
+        response = await http_state.client.request(
             method=request.method,
             url=target_url,
             content=body,

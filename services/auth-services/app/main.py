@@ -2,12 +2,18 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
 from app.core.config import get_settings
+from app.db.session import Base, engine
+from app.api.routes.auth import router as auth_router
 
 settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("[Auth Service] starting...")
+    # Creates the user_credentials table if it doesn't exist
+    # In production → replaced by Alembic
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    print("[Auth Service] started — tables ready")
     yield
     print("[Auth Service] shutdown.")
 
@@ -19,10 +25,12 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs" if settings.debug else None,
     redoc_url="/redoc" if settings.debug else None,
+    redirect_slashes=False,
 )
 
+app.include_router(auth_router)
 
-@app.get("/health", tags=["health"])
+@app.get("/health", tags=["health"], operation_id="check")
 async def health_check():
     return {
         "service": "Identyx Auth Service",
