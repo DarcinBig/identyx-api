@@ -1,11 +1,13 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-import httpx
 import logging
+import httpx
+import app.http as http_state
 
 from app.core.config import get_settings
 from app.middleware.logging import LoggingMiddleware
 from app.middleware.errors import ErrorHandlingMiddleware
+
 from app.routes.auth import router as auth_router
 from app.routes.users import router as users_router
 from app.routes.sessions import router as sessions_router
@@ -14,14 +16,9 @@ from app.routes.tokens import router as tokens_router
 settings = get_settings()
 logger = logging.getLogger("gateway")
 
-# HTTP client shared between all requests
-# Initialized at startup, closed at shutdown
-http_client: httpx.AsyncClient | None = None
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global http_client
-    http_client = httpx.AsyncClient(
+    http_state.client= httpx.AsyncClient(
         timeout=httpx.Timeout(
             connect=5.0,        # connection timeout to a service
             read=30.0,          # response read timeout
@@ -31,7 +28,8 @@ async def lifespan(app: FastAPI):
     )
     logger.info("[Gateway] started — listening on port 8100")
     yield
-    await http_client.aclose()
+    await http_state.client.aclose()
+    http_state.client = None
     logger.info("[Gateway] shutdown.")
 
 app = FastAPI(
