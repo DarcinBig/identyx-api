@@ -109,6 +109,54 @@ class AuthService:
             detail="Invalid email or password",
         )
 
+    async def _delete_user_profile(self, user_id: str) -> None:
+        """
+        Deletes the user profile (best-effort rollback).
+        Called if credential storage fails after profile creation.
+        """
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                await client.delete(
+                    f"{settings.user_service_url}/users/{user_id}",
+                )
+            except Exception:
+                # We log the failure but we don't retry —
+                # The main transaction has already failed
+                pass
+
+    async def _generate_tokens(self, user_id: str) -> dict:
+        """
+        Calls token-service to generate a token pair.
+        Returns the TokenPairResponse dictionary.
+
+        Reasons:
+            503 if token-service is unavailable
+        """
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                response = await client.post(
+                    f"{settings.token_service_url}/tokens/generate",
+                    json={"user_id": user_id},
+                )
+            except httpx.ConnectError:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Token service unavailable."
+                )
+            except httpx.TimeoutException:
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail="Token service timeout",
+                )
+
+        if response.status_code == status.HTTP_200_OK:
+            return response.json()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate token.",
+        )
+
     # --- Register ---------------------------------------------------------------------------
 
     async def register(self, data: RegisterRequest) -> AuthResponse:
@@ -119,7 +167,8 @@ class AuthService:
             1. Create the profile in user-service (valid email + unique username)
             2. Hash the password with Argon2id
             3. Store the credential in identyx_auth (auth-service's database)
-            4. Return the response (tokens = placeholders in token-service)
+            4. Call token-service to generate the tokens
+            5. Return to full AuthResponse
 
         If the credential fails after the profile is created,
         a profile rollback is attempted (best effort).
@@ -146,13 +195,15 @@ class AuthService:
                 detail="Failed to store credential. Please try again.",
             )
 
-        # Step 4 — Return the answer
-        # The real tokens arrive in token-service
+        # Step 4 — Call token-service
+        tokens = await self._generate_tokens(user_id)
+
+        # Step 5 — Return to full AuthResponse
         return AuthResponse(
-            access_token="",    # TODO Replace with the real token from token service
-            refresh_token="",   # TODO token-service
+            access_token=tokens["access_token"],
+            refresh_token=tokens["refresh_token"],
             token_type="Bearer",
-            expires_in=settings.access_token_expires_minutes * 60,
+            expires_in=tokens["expires_in"],
             user=UserPublic(
                 id=user_profile["id"],
                 email=user_profile["email"],
@@ -162,21 +213,6 @@ class AuthService:
                 avatar_provider=user_profile["avatar_provider"],
             ),
         )
-
-    async def _delete_user_profile(self, user_id: str) -> None:
-        """
-        Deletes the user profile (best-effort rollback).
-        Called if credential storage fails after profile creation.
-        """
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            try:
-                await client.delete(
-                    f"{settings.user_service_url}/users/{user_id}",
-                )
-            except Exception:
-                # We log the failure but we don't retry —
-                # The main transaction has already failed
-                pass
 
     # --- Login ------------------------------------------------------------------------------
 
@@ -189,7 +225,8 @@ class AuthService:
             2. Retrieve the credential from identyx_auth (auth-service's database)
             3. Verify the password with Argon2id
             4. If needs_rehash → silently update the hash
-            5. Return the response (tokens = placeholders in token-service)
+            5. Call token-service to generate the tokens
+            6. Return to full AuthResponse
 
         Security note:
             - The email address is not revealed (generic 401 response)
@@ -225,13 +262,15 @@ class AuthService:
                 new_hashed_password=new_hash,
             )
 
-        # Step 5 — Return the answer
-        # The real tokens arrive in token-service
+        # Step 5 — Call token-service
+        tokens = await self._generate_tokens(user_id)
+
+        # Step 6 — Return to full AuthResponse
         return AuthResponse(
-            access_token="",    # TODO token-service
-            refresh_token="",   # TODO token-service
+            access_token=tokens["access_token"],
+            refresh_token=tokens["refresh_token"],
             token_type="Bearer",
-            expires_in=settings.access_token_expires_minutes * 60,
+            expires_in=tokens["expires_in"],
             user=UserPublic(
                 id=user_profile["id"],
                 email=user_profile["email"],
@@ -248,9 +287,12 @@ class AuthService:
         """
         Disconnects a user.
 
-        auth-service: placeholder — returns a success without doing anything.
+        token-service: clean placeholder.
+        session-service: will invalidate the refresh token in session-service.
+        token-service: will also revoke the access token via token-service.
         """
         # TODO call session-service to invalidate the token
+        # TODO call token-service to revoke access
         return MessageResponse(message="Successfully logged out")
 
     # --- Refresh ----------------------------------------------------------------------------
@@ -259,7 +301,8 @@ class AuthService:
         """
         Renews tokens from a valid refresh token.
 
-        In auth-service: Placeholder.
+        auth-service: Placeholder 501.
+        token-service: full implementation with session-service.
 
          Full implementation:
             1. Call the session-service to validate the refresh token (exists, not revoked, not expired)

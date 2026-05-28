@@ -1,0 +1,1 @@
+# Token service uses Redis only — no PostgreSQL

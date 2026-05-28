@@ -2,13 +2,17 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
 from app.core.config import get_settings
+from app.cache.redis import init_redis, close_redis
+from app.api.routes.tokens import router as tokens_router
 
 settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("[Token Session] starting...")
+    await init_redis()
+    print("[Token Session] started — Redis connected")
     yield
+    await close_redis()
     print("[Token Session] shutdown.")
 
 app = FastAPI(
@@ -18,9 +22,12 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs" if settings.debug else None,
     redoc_url="/redoc" if settings.debug else None,
+    redirect_slashes=False,
 )
 
-@app.get("/health", tags=["health"])
+app.include_router(tokens_router)
+
+@app.get("/health", tags=["health"], operation_id="check")
 async def health_check():
     return {
         "service": "Identyx Token Service",

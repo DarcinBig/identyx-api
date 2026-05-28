@@ -46,20 +46,25 @@ async def _proxy(request: Request, path: str) -> JSONResponse:
             content={"error": "User service unavailable"},
         )
 
+@router.post("/", operation_id="create")
+async def create_user(request: Request):
+    """POST /users -> user-service"""
+    return await _proxy(request, "/users")
+
 @router.get("/me", operation_id="me")
 async def get_me(request: Request):
     """GET /users/me -> user-service"""
     return await _proxy(request, "/users/me")
 
+@router.get("/internal/by-email", operation_id="get-user-by-email")
+async def get_user_by_email(request: Request):
+    """GET /internal/by-email -> user-service"""
+    return await _proxy(request, "/users/internal/by-email")
+
 @router.get("/{user_id}", operation_id="user-id")
 async def get_user(request: Request, user_id: str):
     """GET /users/{user_id} -> user-service"""
     return await _proxy(request, f"/users/{user_id}")
-
-@router.post("/", operation_id="create")
-async def create_user(request: Request):
-    """POST /users -> user-service"""
-    return await _proxy(request, "/users")
 
 @router.patch("/{user_id}", operation_id="update")
 async def update_user(request: Request, user_id: str):

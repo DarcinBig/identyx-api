@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     app_name: str = "Identyx Gateway"
     debug: bool = False
     environment: str = "development"
+    gateway_port: int = 8100
 
     # URLs of internal services
     user_service_url: str = "http://localhost:8001"
@@ -18,9 +19,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
 
     # Redis (rate limiting)
-    redis_url: str = "redis://redis:6379"
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    # redis_url: str = "redis://redis:6379"
 
-    model_config = {"env_file": ".env"}
+    model_config = {"env_file": ".env", "extra": "ignore"}
 
 @lru_cache()
 def get_settings() -> Settings:

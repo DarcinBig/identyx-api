@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     database_url: str = ""
 
     # Redis
-    redis_url: str = "redis://localhost:6379"
+    # redis_url: str = "redis://localhost:6379"
 
     # JWT
     jwt_secret_key: str = ""
@@ -34,8 +34,8 @@ class Settings(BaseSettings):
 
     # Internal services URLs
     user_service_url: str = "http://localhost:8001"
-    session_service_url: str = "http://localhost:8004"
     token_service_url: str = "http://localhost:8003"
+    session_service_url: str = "http://localhost:8004"
 
     model_config = {
         "env_file": ".env",
