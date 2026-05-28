@@ -57,7 +57,7 @@ async def verify_token(request: Request):
     """POST /tokens/verify → token-service"""
     return await _proxy(request, "/tokens/verify")
 
-@router.post("/refresh", operation_id="refresh")
-async def refresh_token(request: Request):
-    """POST /tokens/refresh → token-service"""
-    return await _proxy(request, "/tokens/refresh")
+@router.post("/revoke", operation_id="revoke-token")
+async def revoke_token(request: Request):
+    """POST /tokens/revoke → token-service"""
+    return await _proxy(request, "/tokens/revoke")

@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
             pool=5.0,           # pool connection timeout
         )
     )
-    logger.info("[Gateway] started — listening on port 8100")
+    logger.info("[Gateway] started — listening on port %s", settings.gateway_port)
     yield
     await http_state.client.aclose()
     http_state.client = None
