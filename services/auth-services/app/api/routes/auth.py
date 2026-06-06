@@ -66,7 +66,10 @@ async def logout(data: LogoutRequest, service: AuthService = Depends(get_auth_se
     Disconnects a user.
     Completely invalidates the refresh token in session-service.
     """
-    return await service.logout(data.refresh_token)
+    return await service.logout(
+        refresh_token=data.refresh_token,
+        access_token=data.access_token,
+    )
 
 @router.post(
     "/refresh",

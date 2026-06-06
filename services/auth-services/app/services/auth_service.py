@@ -1,4 +1,5 @@
 import httpx
+from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -109,6 +110,32 @@ class AuthService:
             detail="Invalid email or password",
         )
 
+    async def _get_user_by_id(self, user_id: str) -> dict:
+        """Retrieves a user profile via id using a user service."""
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                response = await client.get(
+                    f"{settings.user_service_url}/users/{user_id}",
+                )
+            except httpx.ConnectError:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="User service is unavailable",
+                )
+            except httpx.TimeoutException:
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail="User service timeout",
+                )
+
+        if response.status_code == status.HTTP_200_OK:
+            return response.json()
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
     async def _delete_user_profile(self, user_id: str) -> None:
         """
         Deletes the user profile (best-effort rollback).
@@ -123,6 +150,8 @@ class AuthService:
                 # We log the failure but we don't retry —
                 # The main transaction has already failed
                 pass
+
+    # --- Internal calls to token service -----------------------------------------------------
 
     async def _generate_tokens(self, user_id: str) -> dict:
         """
@@ -157,18 +186,124 @@ class AuthService:
             detail="Failed to generate token.",
         )
 
+    async def _revoke_access_token(self, access_token: str) -> None:
+        """Revokes an access token via token-service (Redis blacklist)."""
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                await client.post(
+                    f"{settings.token_service_url}/tokens/revoke",
+                    json={"access_token": access_token},
+                )
+            except Exception:
+                pass
+
+    # --- Internal calls to session service --------------------------------------------------
+
+    async def _create_session(
+            self,
+            user_id: str,
+            refresh_token_hash: str,
+            device_info: str | None = None
+    ) -> None:
+        """Create a session in session service"""
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            days=settings.refresh_token_expires_days
+        )
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                await client.post(
+                    f"{settings.session_service_url}/sessions/create",
+                    json={
+                        "user_id": user_id,
+                        "refresh_token_hash": refresh_token_hash,
+                        "device_info": device_info,
+                        "expires_at": expires_at.isoformat(),
+                    }
+                )
+            except httpx.ConnectError:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Session service unavailable",
+                )
+            except httpx.TimeoutException:
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail="Session service timeout",
+                )
+
+    async def _revoke_session(self, refresh_token: str) -> None:
+        """Revokes a session in session-service"""
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                await client.post(
+                    f"{settings.session_service_url}/sessions/revoke",
+                    json={"refresh_token": refresh_token},
+                )
+            except Exception:
+                pass
+
+    async def _validate_session(
+            self,
+            refresh_token: str,
+    ) -> dict:
+        """Validates a refresh token via session-service."""
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                response = await client.post(
+                    f"{settings.session_service_url}/sessions/validate",
+                    json={"refresh_token": refresh_token},
+                )
+            except httpx.ConnectError:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Session service unavailable",
+                )
+            except httpx.TimeoutException:
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail="Session service timeout",
+                )
+        return response.json()
+
+    async def _rotate_session(self, old_refresh_token: str, new_refresh_token_hash: str) -> None:
+        """Performs the refresh token rotation in session-service."""
+        new_expires_at = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expires_days)
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                await client.post(
+                    f"{settings.session_service_url}/sessions/rotate",
+                    json={
+                        "old_refresh_token": old_refresh_token,
+                        "new_refresh_token_hash": new_refresh_token_hash,
+                        "new_expires_at": new_expires_at.isoformat(),
+                    }
+                )
+            except httpx.ConnectError:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Session service unavailable",
+                )
+            except httpx.TimeoutException:
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail="Session service timeout",
+                )
+
     # --- Register ---------------------------------------------------------------------------
 
-    async def register(self, data: RegisterRequest) -> AuthResponse:
+    async def register(self, data: RegisterRequest, device_info: str | None = None) -> AuthResponse:
         """
         Create a user account.
 
         Flow:
-            1. Create the profile in user-service (valid email + unique username)
+            1. Create the profile in user-service
             2. Hash the password with Argon2id
             3. Store the credential in identyx_auth (auth-service's database)
-            4. Call token-service to generate the tokens
-            5. Return to full AuthResponse
+            4. Generate the tokens via token-service
+            5. Create the session in session-service
+            6. Return a complete AuthResponse
 
         If the credential fails after the profile is created,
         a profile rollback is attempted (best effort).
@@ -192,13 +327,20 @@ class AuthService:
             await self._delete_user_profile(user_id)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to store credential. Please try again.",
+                detail="Failed to store credentials. Please try again.",
             )
 
         # Step 4 — Call token-service
         tokens = await self._generate_tokens(user_id)
 
-        # Step 5 — Return to full AuthResponse
+        # Step 5 — Create the session
+        await self._create_session(
+            user_id=user_id,
+            refresh_token_hash=tokens["refresh_token_hash"],
+            device_info=device_info,
+        )
+
+        # Step 6 — Return a complete AuthResponse
         return AuthResponse(
             access_token=tokens["access_token"],
             refresh_token=tokens["refresh_token"],
@@ -216,21 +358,22 @@ class AuthService:
 
     # --- Login ------------------------------------------------------------------------------
 
-    async def login(self, data: LoginRequest) -> AuthResponse:
+    async def login(self, data: LoginRequest, device_info: str | None = None) -> AuthResponse:
         """
         Logs a user.
 
         Flow:
-            1. Retrieve the profile via user-service (by email)
+            1. Retrieve the profile via user-service
             2. Retrieve the credential from identyx_auth (auth-service's database)
             3. Verify the password with Argon2id
-            4. If needs_rehash → silently update the hash
-            5. Call token-service to generate the tokens
-            6. Return to full AuthResponse
+            4. needs_rehash → silently update if necessary
+            5. Generate the tokens via token-service
+            6. Create the session in session-service
+            7. Return a complete AuthResponse
 
         Security note:
             - The email address is not revealed (generic 401 response)
-            - The timing is constant thanks to Argon2id.
+            - The timing is constant(Argon2id).
         """
         # Step 1 — Retrieve the profile
         user_profile = await self._get_user_by_email(data.email)
@@ -265,7 +408,14 @@ class AuthService:
         # Step 5 — Call token-service
         tokens = await self._generate_tokens(user_id)
 
-        # Step 6 — Return to full AuthResponse
+        # Step 6 — Create the session
+        await self._create_session(
+            user_id=user_id,
+            refresh_token_hash=tokens["refresh_token_hash"],
+            device_info=device_info,
+        )
+
+        # Step 7 — Return to full AuthResponse
         return AuthResponse(
             access_token=tokens["access_token"],
             refresh_token=tokens["refresh_token"],
@@ -283,39 +433,81 @@ class AuthService:
 
     # --- Logout -----------------------------------------------------------------------------
 
-    async def logout(self, refresh_token: str) -> MessageResponse:
+    async def logout(self, refresh_token: str, access_token: str | None = None) -> MessageResponse:
         """
         Disconnects a user.
 
-        token-service: clean placeholder.
-        session-service: will invalidate the refresh token in session-service.
-        token-service: will also revoke the access token via token-service.
+        Flow:
+            1. Revoke the session in session-service (refresh token)
+            2. Revoke the access token in token-service (blacklist Redis)
+                — best-effort, if access_token is provided
+
+        The client must send the refresh_token.
+        The access_token is optional — if provided,
+        it is immediately blacklisted in Redis.
+        TODO implement the `access_token` so that it'll be extracted from the Authorization header.
         """
-        # TODO call session-service to invalidate the token
-        # TODO call token-service to revoke access
+        # Step 1 — Revoke the session
+        await self._revoke_session(refresh_token)
+
+        # Step 2 — Revoke the access token (best-effort)
+        if access_token:
+            await self._revoke_session(access_token)
+
         return MessageResponse(message="Successfully logged out")
 
     # --- Refresh ----------------------------------------------------------------------------
 
     async def refresh(self, refresh_token: str) -> AuthResponse:
         """
-        Renews tokens from a valid refresh token.
+        Renew tokens with rotation.
 
-        auth-service: Placeholder 501.
-        token-service: full implementation with session-service.
+        Flow:
+            1. Validate the refresh token in the session service
+            2. Retrieve the user profile via the user service
+            3. Generate a new token pair via the token service
+            4. Rotation in the session service:
+                old hash replaced by new hash
+            5. Return the AuthResponse with the new tokens
 
-         Full implementation:
-            1. Call the session-service to validate the refresh token (exists, not revoked, not expired)
-            2. Call the token-service to generate a new access token
-            3. Rotation: generate a new refresh token,
-            invalidate the old one in the session-service
-            4. Return the new tokens
-
-        Rotation ensures that a stolen refresh token is unusable
-        as soon as it has been used once.
+        Security:
+            Each refresh token can only be used once.
+            If an attacker uses a stolen token first,
+            the legitimate user will receive a 401 error on the next refresh.
         """
-        # TODO implement with token-service + session-service
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Token refresh not implemented yet — coming soon.",
+        #Step 1 — Validate the session
+        session_data = await self._valite_session(refresh_token)
+        if not session_data.get("valid"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired refresh token",
+            )
+        user_id = session_data["user_id"]
+
+        # Step 2 — Retrieve the profile
+        user_profile = await self._get_user_by_id(user_id)
+
+        # Step 3 — Generate the new tokens
+        tokens = await self._generate_tokens(user_id)
+
+        # Step 4 — Session Rotation
+        await self._rotate_session(
+            old_refresh_token=refresh_token,
+            new_refresh_token_hash=tokens["refresh_token_hash"],
+        )
+
+        # Step 5 — Return the new tokens
+        return AuthResponse(
+            access_token=tokens["access_token"],
+            refresh_token=tokens["refresh_token"],
+            token_type="Bearer",
+            expires_in=tokens["expires_in"],
+            user=UserPublic(
+                id=user_profile["id"],
+                email=user_profile["email"],
+                username=user_profile["username"],
+                is_verified=user_profile["is_verified"],
+                avatar_url=user_profile["avatar_url"],
+                avatar_provider=user_profile["avatar_provider"],
+            )
         )
