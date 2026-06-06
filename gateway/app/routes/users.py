@@ -31,18 +31,26 @@ async def _proxy(request: Request, path: str) -> JSONResponse:
             headers=headers,
             params=dict(request.query_params),
         )
+
+        try:
+            content = response.json() if response.content else None
+        except Exception:
+            content = {"error": "Invalid response from service"}
+
         return JSONResponse(
-            content=response.json() if response.content else None,
+            content=content,
             status_code=response.status_code,
         )
+
     except httpx.TimeoutException:
         return JSONResponse(
-            status_code=504,
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             content={"error": "User service timeout"},
         )
+
     except httpx.ConnectError:
         return JSONResponse(
-            status_code=503,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={"error": "User service unavailable"},
         )
 

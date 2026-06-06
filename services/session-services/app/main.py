@@ -2,12 +2,16 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
 from app.core.config import get_settings
+from app.db.session import Base, engine
+from app.api.routes.sessions import router as sessions_router
 
 settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("[Session Service] starting...")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    print("[Session Service] started — tables ready")
     yield
     print("[Session Service] shutdown.")
 
@@ -16,11 +20,14 @@ app = FastAPI(
     description="Session and refresh tokens",
     version="0.1.0",
     lifespan=lifespan,
+    redirect_slashes=False,
     docs_url="/docs" if settings.debug else None,
     redoc_url="/redoc" if settings.debug else None,
 )
 
-@app.get("/health", tags=["health"])
+app.include_router(sessions_router)
+
+@app.get("/health", tags=["health"], operation_id="check")
 async def health_check():
     return {
         "service": "Identyx Session Service",
