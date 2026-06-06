@@ -1,12 +1,13 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-import logging
 import httpx
-import app.http as http_state
+import logging
 
 from app.core.config import get_settings
 from app.middleware.logging import LoggingMiddleware
 from app.middleware.errors import ErrorHandlingMiddleware
+from app.middleware.jwt_auth import JWTAuthMiddleware
+import app.http as http_state
 
 from app.routes.auth import router as auth_router
 from app.routes.users import router as users_router
@@ -54,6 +55,7 @@ app = FastAPI(
 
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(ErrorHandlingMiddleware)
+app.add_middleware(JWTAuthMiddleware)
 
 # --- Routers -----------------------------------------------
 app.include_router(auth_router)

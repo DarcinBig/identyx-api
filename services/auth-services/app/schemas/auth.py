@@ -59,8 +59,6 @@ class LogoutRequest(BaseModel):
     refresh_token: required — revokes the session in session-service
     access_token: optional — immediately revokes the access token
                   in Redis via token-service.
-
-    TODO implement `refresh_token` and `access_token` so they will be automatically extracted from the header.
     """
     refresh_token: str
     access_token: str | None = None

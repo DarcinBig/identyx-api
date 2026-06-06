@@ -188,14 +188,29 @@ class AuthService:
 
     async def _revoke_access_token(self, access_token: str) -> None:
         """Revokes an access token via token-service (Redis blacklist)."""
+        if not access_token or not access_token.strip():
+            print("[_revoke_access_token] WARNING: empty access_token, skipping")
+            return
+
+        print(f"[_revoke_access_token] Call token-service: {settings.token_service_url}")
+        print(f"[_revoke_access_token] Token: {access_token[:30]}...")
+
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
-                await client.post(
+                response = await client.post(
                     f"{settings.token_service_url}/tokens/revoke",
                     json={"access_token": access_token},
                 )
-            except Exception:
-                pass
+                if response.status_code == 200:
+                    print("[_revoke_access_token] Token blacklisted successfully")
+                else:
+                    print(f"[_revoke_access_token] Unexpected status: {response.status_code}")
+            except httpx.ConnectError:
+                print("[_revoke_access_token] WARNING: token-service unavailable")
+            except httpx.TimeoutException:
+                print("[_revoke_access_token] WARNING: token-service timeout")
+            except Exception as exc:
+                print(f"[_revoke_access_token] WARNING: {exc}")
 
     # --- Internal calls to session service --------------------------------------------------
 
@@ -445,14 +460,18 @@ class AuthService:
         The client must send the refresh_token.
         The access_token is optional — if provided,
         it is immediately blacklisted in Redis.
-        TODO implement the `access_token` so that it'll be extracted from the Authorization header.
         """
+        print(f"[logout] refresh_token: {refresh_token[:20]}...")
+        print(f"[logout] access_token: {access_token[:20] if access_token else 'None'}")
+
         # Step 1 — Revoke the session
         await self._revoke_session(refresh_token)
 
         # Step 2 — Revoke the access token (best-effort)
         if access_token:
-            await self._revoke_session(access_token)
+            await self._revoke_access_token(access_token)
+        else:
+            print("[service/logout] WARNING: absent access_token — token non-blacklisted")
 
         return MessageResponse(message="Successfully logged out")
 
@@ -476,7 +495,7 @@ class AuthService:
             the legitimate user will receive a 401 error on the next refresh.
         """
         #Step 1 — Validate the session
-        session_data = await self._valite_session(refresh_token)
+        session_data = await self._validate_session(refresh_token)
         if not session_data.get("valid"):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
