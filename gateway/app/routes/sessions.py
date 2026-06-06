@@ -58,7 +58,11 @@ async def _proxy(request: Request, path: str) -> JSONResponse:
 
 @router.get("/", operation_id="index")
 async def list_sessions(request: Request):
-    """GET /sessions → session-service"""
+    """
+    X-User-Id injected by the gateway — session-service extracts it.
+
+    GET /sessions → session-service
+    """
     return await _proxy(request, "/sessions/")
 
 @router.get("/{session_id}", operation_id="session-id")

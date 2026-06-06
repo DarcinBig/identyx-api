@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, File, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.dependencies import get_current_user_id
 from app.schemas.user import (
     UserCreate,
     UserUpdate,
@@ -38,16 +39,15 @@ async def create_user(
     operation_id="me",
 )
 async def get_me(
+        user_id: str = Depends(get_current_user_id),
         service: UserService = Depends(get_user_service)
 ):
     """
-    Placeholder — will be soon implemented with JWT extraction.
+    Returns the profile of the logged-in user.
+    `user_id` is automatically extracted from the `X-User-Id` header
+    injected by the gateway after JWT validation.
     """
-    from fastapi import HTTPException
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="JWT extraction not implemented yet — coming soon",
-    )
+    return await service.get_user_by_id(user_id)
 
 @router.get(
     "/{user_id}",
