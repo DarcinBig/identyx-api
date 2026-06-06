@@ -86,8 +86,71 @@ async def login(request: Request):
 
 @router.post("/logout", operation_id="logout")
 async def logout(request: Request):
-    """POST /auth/logout -> auth-service"""
-    return await _proxy(request, "/auth/logout")
+    """
+    The gateway extracts the access token from the Authorization header
+    and injects it into the body before forwarding it to the auth-service.
+    This allows the auth-service to revoke the access token in Redis.
+
+    POST /auth/logout -> auth-service
+    """
+    import json as json_lib
+
+    if http_state.client is None:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "Gateway not ready"},
+        )
+
+    # Read the original body (contains refresh_token)
+    body_bytes = await request.body()
+
+    headers = {
+        key: value
+        for key, value in request.headers.items()
+        if key.lower() not in ("host", "content-length")
+    }
+
+    # try:
+    #     body = json_lib.loads(body_bytes) if body_bytes else {}
+    # except Exception:
+    #     body = {}
+
+    # Extract the access token from the Authorization header
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        access_token = auth_header[len("Bearer "):]
+        if access_token.strip():
+            headers["x-access-token"] = access_token.strip()
+            print(f"[gateway/logout] X-Access-Token injected: {access_token[:30]}...")
+
+    # Rebuild the enriched body
+    # enriched_body = json_lib.dumps(body).encode("utf-8")
+
+    try:
+        response = await http_state.client.post(
+            f"{settings.auth_service_url}/auth/logout",
+            content=body_bytes,
+            headers=headers,
+        )
+        try:
+            content = response.json() if response.content else None
+        except Exception:
+            content = {"error": "Invalid response from service"}
+
+        return JSONResponse(
+            content=content,
+            status_code=response.status_code,
+        )
+    except httpx.TimeoutException:
+        return JSONResponse(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            content={"error": "Auth service timeout"},
+        )
+    except httpx.ConnectError:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "Auth service unavailable"},
+        )
 
 @router.post("/refresh", operation_id="refresh-token")
 async def refresh(request: Request):

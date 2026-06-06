@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.dependencies import get_current_user_id
 from app.schemas.auth import (
     RegisterRequest,
     LoginRequest,
@@ -24,7 +25,10 @@ def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
     summary="Register a new user",
     operation_id="register",
 )
-async def register(data: RegisterRequest, service: AuthService = Depends(get_auth_service)):
+async def register(
+    data: RegisterRequest,
+    service: AuthService = Depends(get_auth_service),
+):
     """
     Creates a new user account.
 
@@ -44,7 +48,10 @@ async def register(data: RegisterRequest, service: AuthService = Depends(get_aut
     summary="Login",
     operation_id="login",
 )
-async def login(data: LoginRequest, service: AuthService = Depends(get_auth_service)):
+async def login(
+    data: LoginRequest,
+    service: AuthService = Depends(get_auth_service),
+):
     """
     Connects an existing user.
 
@@ -61,14 +68,25 @@ async def login(data: LoginRequest, service: AuthService = Depends(get_auth_serv
     summary="Logout",
     operation_id="logout",
 )
-async def logout(data: LogoutRequest, service: AuthService = Depends(get_auth_service)):
+async def logout(
+    request: Request,
+    data: LogoutRequest,
+    service: AuthService = Depends(get_auth_service),
+):
     """
-    Disconnects a user.
-    Completely invalidates the refresh token in session-service.
+    Disconnect the user.
+
+    The gateway has already enriched the body with `access_token` extracted from the Authorization header.
+    `auth-service` revokes the session AND blacklists the access token.
     """
+    access_token = request.headers.get("X-Access-Token", "").strip() or None
+
+    print(f"[route/logout] refresh_token: {data.refresh_token[:20]}...")
+    print(f"[route/logout] access_token header: {access_token[:30] if access_token else 'None'}")
+
     return await service.logout(
         refresh_token=data.refresh_token,
-        access_token=data.access_token,
+        access_token=access_token,
     )
 
 @router.post(
@@ -78,7 +96,10 @@ async def logout(data: LogoutRequest, service: AuthService = Depends(get_auth_se
     summary="Refresh token",
     operation_id="refresh-token",
 )
-async def refresh(data: RefreshRequest, service: AuthService = Depends(get_auth_service)):
+async def refresh(
+    data: RefreshRequest,
+    service: AuthService = Depends(get_auth_service),
+):
     """
     Exchange a valid refresh token for a new access token
     and a new refresh token (rotation).

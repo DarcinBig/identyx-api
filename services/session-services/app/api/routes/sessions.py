@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.dependencies import get_current_user_id
 from app.schemas.session import (
     CreateSessionRequest,
     ValidateSessionRequest,
@@ -85,7 +86,6 @@ async def rotate_session(
     Refresh token rotation.
     Called by the auth-service during refresh.
     """
-    from datetime import datetime
     return await service.rotate_session(
         old_refresh_token=data.old_refresh_token,
         new_refresh_token_hash=data.new_refresh_token_hash,
@@ -101,11 +101,13 @@ async def rotate_session(
     summary="List active sessions",
     operation_id="list",
 )
-async def list_sessions(user_id: str, service: SessionService = Depends(get_session_service)):
+async def list_sessions(
+        user_id: str = Depends(get_current_user_id),
+        service: SessionService = Depends(get_session_service)
+):
     """
-    Lists the user's active sessions.
-    TODO implement `user_id` to be automatically extracted from the JWT.
-    For now, `user_id` is passed as a query parameter.
+    Lists the active sessions of the logged-in user.
+    `user_id` is automatically extracted from `X-User-Id`, which is injected by the gateway.
     """
     return await service.list_sessions(user_id)
 
@@ -116,11 +118,11 @@ async def list_sessions(user_id: str, service: SessionService = Depends(get_sess
     summary="Revoke all sessions",
     operation_id="revoke-all",
 )
-async def revoke_all_sessions(user_id: str, service: SessionService = Depends(get_session_service)):
-    """
-    Revokes all user sessions.
-    TODO implement `user_id` to be automatically extracted from the JWT.
-    """
+async def revoke_all_sessions(
+        user_id: str = Depends(get_current_user_id),
+        service: SessionService = Depends(get_session_service)
+):
+    """Revokes all sessions of the logged-in user."""
     return await service.revoke_all_sessions(user_id)
 
 @router.delete(
@@ -132,12 +134,8 @@ async def revoke_all_sessions(user_id: str, service: SessionService = Depends(ge
 )
 async def revoke_session_by_id(
         session_id: str,
-        user_id: str,
+        user_id: str = Depends(get_current_user_id),
         service: SessionService = Depends(get_session_service)
 ):
-    """
-    Revokes a specific session by its ID.
-
-    TODO implement `user_id` to be automatically extracted from the JWT.
-    """
+    """Revokes a specific session of the logged-in user."""
     return await service.revoke_session_by_id(session_id=session_id, user_id=user_id)
