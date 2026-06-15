@@ -318,7 +318,8 @@ class AuthService:
             3. Store the credential in identyx_auth (auth-service's database)
             4. Generate the tokens via token-service
             5. Create the session in session-service
-            6. Return a complete AuthResponse
+            6. Send verification email
+            7. Return a complete AuthResponse
 
         If the credential fails after the profile is created,
         a profile rollback is attempted (best effort).
@@ -355,7 +356,14 @@ class AuthService:
             device_info=device_info,
         )
 
-        # Step 6 — Return a complete AuthResponse
+        # Step 6 — Send verification email (fire & forget)
+        await self._send_verification_email(
+            user_id=user_id,
+            email=user_profile["email"],
+            username=user_profile["username"],
+        )
+
+        # Step 7 — Return a complete AuthResponse
         return AuthResponse(
             access_token=tokens["access_token"],
             refresh_token=tokens["refresh_token"],
@@ -370,6 +378,44 @@ class AuthService:
                 avatar_provider=user_profile["avatar_provider"],
             ),
         )
+
+    async def _send_verification_email(
+            self,
+            user_id: str,
+            email: str,
+            username: str,
+    ) -> None:
+        """
+        Sends the verification email via email service.
+        Fire & forget — doesn't wait for a response and never fails.
+
+        The verification token is the user_id encoded in base64.
+        In a future version, a signed token with an expiration date (JWT) will be used.
+        """
+        import base64
+        import asyncio
+
+        # Simple token for email-service — to be secured in V2
+        verification_token = base64.urlsafe_b64encode(
+            user_id.encode()
+        ).decode()
+
+        async def _fire_and_forget():
+            async with httpx.AsyncClient(timeout=10) as client:
+                try:
+                    await client.post(
+                        f"{settings.email_service_url}/emails/verify",
+                        json={
+                            "email": email,
+                            "username": username,
+                            "verification_token": verification_token,
+                        }
+                    )
+                    print(f"[auth/register] Verification email sent to {email}")
+                except Exception as exc:
+                    print(f"[auth/register] Email not sent (non-blocking): {exc}")
+
+        asyncio.create_task(_fire_and_forget())
 
     # --- Login ------------------------------------------------------------------------------
 

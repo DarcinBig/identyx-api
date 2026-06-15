@@ -24,6 +24,7 @@ services:
       - user-service
       - session-service
       - token-service
+      - email-service
     networks:
       - identyx-network
     restart: unless-stopped

@@ -7,13 +7,19 @@ class Settings(BaseSettings):
     environment: str = "development"
 
     # SMTP config
-    smtp_host: str = "smtp.mailtrap.io"
+    smtp_host: str = "smtp-relay.brevo.com"
     smtp_port: int = 587
     smtp_user: str = ""
     smtp_password: str = ""
-    emails_from: str = "noreply@identyx.io"
+    smtp_use_tls: bool = True
 
-    model_config = {"env_file": ".env"}
+    emails_from: str = "noreply@identyx.io"
+    emails_from_name: str = "Identyx"
+
+    # Base URL for links in emails
+    app_base_url: str = "http://localhost:8100"
+
+    model_config = {"env_file": ".env", "extra": "ignore"}
 
 @lru_cache()
 def get_settings() -> Settings:

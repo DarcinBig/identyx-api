@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     user_service_url: str = "http://localhost:8001"
     token_service_url: str = "http://localhost:8003"
     session_service_url: str = "http://localhost:8004"
+    email_service_url: str = "http://localhost:8005"
 
     model_config = {
         "env_file": ".env",
