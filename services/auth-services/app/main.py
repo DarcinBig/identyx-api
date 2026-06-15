@@ -4,17 +4,33 @@ from contextlib import asynccontextmanager
 from app.core.config import get_settings
 from app.db.session import Base, engine
 from app.api.routes.auth import router as auth_router
+from app.events.publisher import EventPublisher
 
 settings = get_settings()
 
+event_publisher: EventPublisher | None = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global event_publisher
+
     # Creates the user_credentials table if it doesn't exist
-    # In production → replaced by Alembic
+    # In production → will be replaced by Alembic
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    print("[Auth Service] started — tables ready")
+
+    # Publisher events
+    event_publisher = EventPublisher(
+        redis_url=settings.get_events_redis_url()
+    )
+    await event_publisher.connect()
+
+    print("[Auth Service] started — tables ready, events publisher connected")
     yield
+
+    # Close the publisher
+    if event_publisher:
+        await event_publisher.close()
     print("[Auth Service] shutdown.")
 
 

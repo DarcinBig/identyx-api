@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     # Redis
     # redis_url: str = "redis://localhost:6379"
 
+    # Redis events
+    events_redis_host: str = "localhost"
+    events_redis_port: int = 6379
+    events_redis_password: str = ""
+    events_redis_db: int = 1
+
     # JWT
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
@@ -36,6 +42,7 @@ class Settings(BaseSettings):
     user_service_url: str = "http://localhost:8001"
     token_service_url: str = "http://localhost:8003"
     session_service_url: str = "http://localhost:8004"
+    email_service_url: str = "http://localhost:8005"
 
     model_config = {
         "env_file": ".env",
@@ -51,6 +58,19 @@ class Settings(BaseSettings):
             f"/{self.postgres_db}"
         )
         return self
+
+    def get_events_redis_url(self) -> str:
+        if self.events_redis_password:
+            return (
+                f"redis://:{self.events_redis_password}"
+                f"@{self.events_redis_host}:{self.events_redis_port}"
+                f"/{self.events_redis_db}"
+            )
+        return (
+            f"redis://{self.events_redis_host}"
+            f":{self.events_redis_port}"
+            f"/{self.events_redis_db}"
+        )
 
 @lru_cache()
 def get_settings() -> Settings:

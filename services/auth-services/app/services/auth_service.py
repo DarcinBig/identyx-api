@@ -13,6 +13,12 @@ from app.schemas.auth import (
 )
 from app.security.hashing import hash_password, verify_password, needs_rehash
 from app.core.config import get_settings
+from app.events.types import (
+    CHANNEL_USER_REGISTERED,
+    CHANNEL_AUTH_LOGIN,
+    UserRegisteredEvent,
+    AuthLoginEvent
+)
 
 settings = get_settings()
 
@@ -318,7 +324,8 @@ class AuthService:
             3. Store the credential in identyx_auth (auth-service's database)
             4. Generate the tokens via token-service
             5. Create the session in session-service
-            6. Return a complete AuthResponse
+            6. Publish the event (replaces the direct HTTP call)
+            7. Return a complete AuthResponse
 
         If the credential fails after the profile is created,
         a profile rollback is attempted (best effort).
@@ -355,7 +362,14 @@ class AuthService:
             device_info=device_info,
         )
 
-        # Step 6 — Return a complete AuthResponse
+        # Step 6 — Publish the event (replaces the direct HTTP call)
+        await self._publish_user_registered(
+            user_id=user_id,
+            email=user_profile["email"],
+            username=user_profile["username"],
+        )
+
+        # Step 7 — Return a complete AuthResponse
         return AuthResponse(
             access_token=tokens["access_token"],
             refresh_token=tokens["refresh_token"],
@@ -371,6 +385,41 @@ class AuthService:
             ),
         )
 
+    async def _publish_user_registered(
+            self,
+            user_id: str,
+            email: str,
+            username: str,
+    ) -> None:
+        """
+        Publishes the user.registered event to Redis Pub/Sub.
+
+        Email-service listens to this channel and sends the verification email.
+        Fire & forget—never waits and never fails.
+
+        In future versions: RabbitMQ/Kafka will guarantee delivery
+        even if email-service is temporarily down.
+        """
+        import base64
+        from app.main import event_publisher
+
+        if not event_publisher:
+            print("[auth_service] WARNING: event_publisher not initialized")
+            return
+
+        verification_token = base64.urlsafe_b64encode(
+            user_id.encode()
+        ).decode()
+
+        event = UserRegisteredEvent(
+            user_id=user_id,
+            email=email,
+            username=username,
+            verification_token=verification_token,
+        )
+
+        await event_publisher.publish(CHANNEL_USER_REGISTERED, event)
+
     # --- Login ------------------------------------------------------------------------------
 
     async def login(self, data: LoginRequest, device_info: str | None = None) -> AuthResponse:
@@ -384,7 +433,8 @@ class AuthService:
             4. needs_rehash → silently update if necessary
             5. Generate the tokens via token-service
             6. Create the session in session-service
-            7. Return a complete AuthResponse
+            7. Publish the login event (fire & forget)
+            8. Return a complete AuthResponse
 
         Security note:
             - The email address is not revealed (generic 401 response)
@@ -430,7 +480,13 @@ class AuthService:
             device_info=device_info,
         )
 
-        # Step 7 — Return to full AuthResponse
+        # Step 7 — Publish the login event (fire & forget)
+        await self._publish_auth_login(
+            user_id=user_id,
+            email=user_profile["email"],
+        )
+
+        # Step 8 — Return to full AuthResponse
         return AuthResponse(
             access_token=tokens["access_token"],
             refresh_token=tokens["refresh_token"],
@@ -445,6 +501,27 @@ class AuthService:
                 avatar_provider=user_profile["avatar_provider"],
             ),
         )
+
+    async def _publish_auth_login(
+            self,
+            user_id: str,
+            email: str,
+    ) -> None:
+        """
+        Publishes the auth.login event to Redis Pub/Sub.
+        Extensible for analytics, audit logs, and anomaly detection in future versions.
+        """
+        from app.main import event_publisher
+
+        if not event_publisher:
+            return
+
+        event = AuthLoginEvent(
+            user_id=user_id,
+            email=email,
+        )
+
+        await event_publisher.publish(CHANNEL_AUTH_LOGIN, event)
 
     # --- Logout -----------------------------------------------------------------------------
 
