@@ -1,9 +1,11 @@
 import asyncio
+import logging
 import redis.asyncio as aioredis
 from redis.asyncio.connection import SSLConnection
 from typing import Awaitable, Callable
 
 Handler = Callable[[str], Awaitable[None]]
+logger = logging.getLogger("uvicorn.error")
 
 class EventSubscriber:
     """
@@ -41,12 +43,14 @@ class EventSubscriber:
         Runs indefinitely — start with `asyncio.create_task()`.
         Reconnects automatically upon disconnection.
         """
+        logger.info("[EventSubscriber] listen() called")
+        logger.info(f"[EventSubscriber] Connecting to Redis at: {self._redis_url}]")
         channels = list(self._handlers.keys())
         if not channels:
-            print("[EventSubscriber] No channels to listen to.")
+            logger.info("[EventSubscriber] No channels to listen to.")
             return
 
-        print(f"[EventSubscriber] Listening on: {channels}")
+        logger.info(f"[EventSubscriber] Listening on: {channels}")
 
         while True:
             try:
@@ -62,7 +66,7 @@ class EventSubscriber:
                 )
                 async with client.pubsub() as pubsub:
                     await pubsub.subscribe(*channels)
-                    print(f"[EventSubscriber] Subscribed to {channels}")
+                    logger.info(f"[EventSubscriber] Subscribed to {channels}")
 
                     # Use get_message with explicit timeout
                     # instead of listen() which blocks indefinitely
@@ -75,7 +79,7 @@ class EventSubscriber:
                         except asyncio.CancelledError:
                             raise
                         except Exception as exc:
-                            print(f"[EventSubscriber] get_message error: {exc}")
+                            logger.info(f"[EventSubscriber] get_message error: {exc}")
                             break
 
                         if message is None:
@@ -94,16 +98,16 @@ class EventSubscriber:
                             try:
                                 await handler(data)
                             except Exception as exc:
-                                print(
+                                logger.info(
                                     f"[EventSubscriber] Handler error "
                                     f"on '{channel}': {type(exc).__name__}: {exc}"
                                 )
 
             except asyncio.CancelledError:
-                print("[EventSubscriber] Listener cancelled.")
+                logger.info("[EventSubscriber] Listener cancelled.")
                 break
             except Exception as exc:
-                print(
+                logger.info(
                     f"[EventSubscriber] Connection lost: {exc}. "
                     f"Reconnecting in 5s..."
                 )

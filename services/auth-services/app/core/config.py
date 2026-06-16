@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from pydantic import model_validator
 from functools import lru_cache
+from typing import Optional
 
 class Settings(BaseSettings):
     app_name: str = "Identyx Auth Service"
@@ -10,7 +11,7 @@ class Settings(BaseSettings):
     # PostgreSQL
     postgres_user: str
     postgres_password: str
-    postgres_host: str = "localhost"
+    postgres_host: str = "redis"
     postgres_port: int = 5432
     postgres_db: str = "identyx_auth"
 
@@ -20,9 +21,10 @@ class Settings(BaseSettings):
     # redis_url: str = "redis://localhost:6379"
 
     # Redis events
-    events_redis_host: str = "localhost"
-    events_redis_port: int = 6379
-    events_redis_password: str = ""
+    redis_url: Optional[str] = None
+    redis_host: str = "redis"
+    redis_port: int = 6379
+    redis_password: str = ""
     events_redis_db: int = 1
 
     # JWT
@@ -59,16 +61,30 @@ class Settings(BaseSettings):
         )
         return self
 
+    # def get_events_redis_url(self) -> str:
+    #     if self.redis_password:
+    #         return (
+    #             f"redis://:{self.redis_password}"
+    #             f"@{self.redis_host}:{self.redis_port}"
+    #             f"/{self.events_redis_db}"
+    #         )
+    #     return (
+    #         f"redis://{self.redis_host}"
+    #         f":{self.redis_port}"
+    #         f"/{self.events_redis_db}"
+    #     )
+
     def get_events_redis_url(self) -> str:
-        if self.events_redis_password:
+        if self.redis_url:
+            return self.redis_url
+        if self.redis_password:
             return (
-                f"redis://:{self.events_redis_password}"
-                f"@{self.events_redis_host}:{self.events_redis_port}"
+                f"redis://:{self.redis_password}"
+                f"@{self.redis_host}:{self.redis_port}"
                 f"/{self.events_redis_db}"
             )
         return (
-            f"redis://{self.events_redis_host}"
-            f":{self.events_redis_port}"
+            f"redis://{self.redis_host}:{self.redis_port}"
             f"/{self.events_redis_db}"
         )
 

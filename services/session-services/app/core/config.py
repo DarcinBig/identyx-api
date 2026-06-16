@@ -19,6 +19,10 @@ class Settings(BaseSettings):
 
     # Redis
     redis_url: str = "redis://localhost:6379"
+    # events_redis_host: str = "redis"
+    # events_redis_port: int = 6379
+    # events_redis_password: str = ""
+    # events_redis_db: int = 1
 
     # JWT
     refresh_token_expire_days: int = 7

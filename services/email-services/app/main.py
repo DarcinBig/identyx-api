@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
@@ -9,6 +10,7 @@ from app.events.types import CHANNEL_USER_REGISTERED
 from app.events.handlers import handler_user_registered
 
 settings = get_settings()
+logger = logging.getLogger("uvicorn.error")
 
 # Global subscriber
 event_subscriber = EventSubscriber(
@@ -16,13 +18,18 @@ event_subscriber = EventSubscriber(
 )
 
 # Register handlers
+logger.info(f"[DEBUG] Redis events URL: {settings.get_events_redis_url()}")
 event_subscriber.on(CHANNEL_USER_REGISTERED)(handler_user_registered)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Start the subscriber in the background
-    listener_track = asyncio.create_task(event_subscriber.listen())
-    print("[Email Service] started — event subscriber running")
+    try:
+        listener_track = asyncio.create_task(event_subscriber.listen())
+        logger.info("[Email Service] started ? event subscriber running")
+    except Exception as exc:
+        # print("[Email Service] started — event subscriber running")
+        logger.info(f"[Email Service] failed to start subscriber: {exc}")
     yield
 
     # Stop
@@ -31,7 +38,7 @@ async def lifespan(app: FastAPI):
         await listener_track
     except asyncio.CancelledError:
         pass
-    print("[Email Service] shutdown.")
+    logger.info("[Email Service] shutdown.")
 
 app = FastAPI(
     title="Identyx Email Service",

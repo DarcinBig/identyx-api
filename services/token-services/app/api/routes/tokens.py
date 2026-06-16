@@ -1,4 +1,7 @@
-from fastapi import APIRouter, status
+import logging
+import time
+from fastapi import APIRouter, HTTPException, status
+from jose import jwt
 
 from app.schemas.token import (
     GenerateTokenRequest,
@@ -9,6 +12,8 @@ from app.schemas.token import (
     RevokeTokenResponse,
 )
 from app.services.token_service import TokenService
+
+logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter(prefix="/tokens", tags=["tokens"])
 
@@ -55,4 +60,16 @@ async def revoke_token(token: RevokeTokenRequest):
     Revokes an access token (Redis blacklist + TTL).
     Called by the auth-service during logout.
     """
+    try:
+        from app.core.config import get_settings
+        settings = get_settings()
+        payload = jwt.decode(token.access_token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        jti = payload.get("jti")
+        exp = payload.get("exp")
+        if not jti or not exp:
+            raise HTTPException(status_code=400, detail="Invalid token payload")
+        ttl = exp - int(time.time())
+        logger.info(f"[revoke] jti={jti}, ttl={ttl}")
+    except Exception as exc:
+        logger.warning(f"[revoke] Could not decode token: {exc}")
     return await _service.revoke(token)
