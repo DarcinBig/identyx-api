@@ -422,24 +422,47 @@ class AuthService:
 
     # --- Login ------------------------------------------------------------------------------
 
-    async def login(self, data: LoginRequest, device_info: str | None = None) -> AuthResponse:
+    async def login(
+            self,
+            data: LoginRequest,
+            device_info: str | None = None,
+            client_ip: str = "unknown",
+    ) -> AuthResponse:
         """
-        Logs a user.
+        Logs in a user with brute-force protection.
 
         Flow:
-            1. Retrieve the profile via user-service
-            2. Retrieve the credential from identyx_auth (auth-service's database)
-            3. Verify the password with Argon2id
-            4. needs_rehash → silently update if necessary
-            5. Generate the tokens via token-service
-            6. Create the session in session-service
-            7. Publish the login event (fire & forget)
-            8. Return a complete AuthResponse
+            0. Check for brute-force lockout
+            1. Retrieve profile via user-servic
+            2. Retrieve credential
+            3. Verify password with Argon2id
+                → If failed: log attempt and raise 401
+                → If successful: reset brute-force counter
+            4. needs_rehash → silently update
+            5. Generate tokens
+            6. Create session
+            7. Publish auth.login event
+            8. Return AuthResponse
 
         Security note:
             - The email address is not revealed (generic 401 response)
             - The timing is constant(Argon2id).
         """
+        from app.security.brute_force import (
+            check_brute_force,
+            record_failed_attempt,
+            reset_brute_force,
+        )
+
+        # Step 0 — Check the lockout
+        await check_brute_force(
+            email=data.email,
+            ip=client_ip,
+            redis_url=settings.brute_force_redis_url,
+            max_attempts=settings.brute_force_max_attempts,
+            lockout_minutes=settings.brute_force_lockout_minutes,
+        )
+
         # Step 1 — Retrieve the profile
         user_profile = await self._get_user_by_email(data.email)
         user_id = user_profile["id"]
@@ -447,8 +470,12 @@ class AuthService:
         # Step 2 — Retrieve the credential
         credential = await self.repo.get_by_user_id(user_id)
         if not credential:
-            # Credential missing — should not occur in production
-            # but we protect against inconsistent states
+            await reset_brute_force(
+                email=data.email,
+                ip=client_ip,
+                redis_url=settings.brute_force_redis_url,
+                lockout_minutes=settings.brute_force_lockout_minutes,
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password",
@@ -456,12 +483,25 @@ class AuthService:
 
         # Step 3 — Verify the password
         if not verify_password(data.password, credential.hashed_password):
+            # Record the failure before raising the exception
+            await record_failed_attempt(
+                email=data.email,
+                ip=client_ip,
+                redis_url=settings.brute_force_redis_url,
+                lockout_minutes=settings.brute_force_lockout_minutes,
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password",
             )
+        # Success — resets the brute-force counter
+        await reset_brute_force(
+            email=data.email,
+            ip=client_ip,
+            redis_url=settings.brute_force_redis_url,
+        )
 
-        # Step 4 — Update the hash if necessary
+        # Step 4 — Update the hash if necessary (need_hash)
         # (Argon2 parameters changed in production)
         if needs_rehash(credential.hashed_password):
             new_hash = hash_password(data.password)
@@ -470,7 +510,7 @@ class AuthService:
                 new_hashed_password=new_hash,
             )
 
-        # Step 5 — Call token-service
+        # Step 5 — Generate token
         tokens = await self._generate_tokens(user_id)
 
         # Step 6 — Create the session

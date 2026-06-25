@@ -8,15 +8,24 @@ class Settings(BaseSettings):
     gateway_port: int = 8100
 
     # URLs of internal services
-    user_service_url: str = "http://localhost:8001"
-    auth_service_url: str = "http://localhost:8002"
-    token_service_url: str = "http://localhost:8003"
-    session_service_url: str = "http://localhost:8004"
-    email_service_url: str = "http://localhost:8005"
+    user_service_url: str = "http://user-service:8001"
+    auth_service_url: str = "http://auth-service:8002"
+    token_service_url: str = "http://token-service:8003"
+    session_service_url: str = "http://session-service:8004"
+    email_service_url: str = "http://email-service:8005"
 
     # JWT (gateway-side validation)
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
+
+    # Rate Limiting
+    rate_limit_redis_url: str = "redis://redis:6379/2"
+    rate_limit_global: int = 100    # req/min per IP
+    rate_limit_login: int = 10      # req/min per IP on /auth/login
+    rate_limit_register: int = 5    # req/min per IP on /auth/register
+
+    # CORS
+    cors_origins: str = "http://localhost:3000,http://localhost:8000"
 
     # Redis (rate limiting)
     redis_host: str = "localhost"
@@ -24,6 +33,9 @@ class Settings(BaseSettings):
     # redis_url: str = "redis://redis:6379"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
+
+    def get_cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 @lru_cache()
 def get_settings() -> Settings:

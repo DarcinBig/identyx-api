@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.dependencies import get_current_user_id
 from app.schemas.auth import (
     RegisterRequest,
     LoginRequest,
@@ -17,6 +16,15 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
     return AuthService(db)
+
+def _get_client_ip(request: Request) -> str:
+    """Extracts the IP from X-Forwarded-For or directly."""
+    forwarded_for = request.headers.get("X-Forwarded-For", "")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return "unknown"
 
 @router.post(
     "/register",
@@ -49,6 +57,7 @@ async def register(
     operation_id="login",
 )
 async def login(
+    request: Request,
     data: LoginRequest,
     service: AuthService = Depends(get_auth_service),
 ):
@@ -58,8 +67,11 @@ async def login(
         - Verifies credentials with Argon2id
         - Updates the hash if needs_rehash (silently)
         - Returns the profile + tokens (real tokens in token-service)
+
+    Login with brute-force protection.
     """
-    return await service.login(data)
+    client_ip = _get_client_ip(request)
+    return await service.login(data, client_ip=client_ip)
 
 @router.post(
     "/logout",

@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     redis_password: str = ""
     events_redis_db: int = 1
 
+    # Anti-brute-force
+    brute_force_redis_url: str = "redis://redis:6379/2"
+    brute_force_max_attempts: int = 5
+    brute_force_lockout_minutes: int = 15
+
     # JWT
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
