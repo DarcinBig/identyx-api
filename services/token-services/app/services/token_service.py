@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 from fastapi import HTTPException, status
 
@@ -18,6 +19,7 @@ from app.schemas.token import (
 from app.core.config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger("uvicorn.error")
 
 class TokenService:
     async def generate(self, data: GenerateTokenRequest) -> TokenPairResponse:
@@ -89,9 +91,30 @@ class TokenService:
         If the token has already expired or is invalid,
         the return is success — it is, in fact, already invalid.
         """
+        # try:
+        #     payload = decode_access_token(data.access_token)
+        # except HTTPException:
+        #     return RevokeTokenResponse(
+        #         message="Token already invalid or expired.",
+        #     )
+        #
+        # jti = payload.get("jti")
+        # exp = payload.get("exp")
+        #
+        # if jti and exp:
+        #     now = datetime.now(timezone.utc)
+        #     exp_dt = datetime.fromtimestamp(exp, tz=timezone.utc)
+        #     ttl = max(0, int((exp_dt - now).total_seconds()))
+        #
+        #     if ttl > 0:
+        #         await blacklist_token(jti=jti, ttl_seconds=ttl)
+        # return RevokeTokenResponse(
+        #     message="Token revoked successfully.",
+        # )
         try:
             payload = decode_access_token(data.access_token)
         except HTTPException:
+            logger.warning("[revoke] Invalid token received")
             return RevokeTokenResponse(
                 message="Token already invalid or expired.",
             )
@@ -103,9 +126,12 @@ class TokenService:
             now = datetime.now(timezone.utc)
             exp_dt = datetime.fromtimestamp(exp, tz=timezone.utc)
             ttl = max(0, int((exp_dt - now).total_seconds()))
-
+            logger.info(f"[revoke] jti={jti}, ttl={ttl} seconds")
             if ttl > 0:
                 await blacklist_token(jti=jti, ttl_seconds=ttl)
+                logger.info(f"[revoke] Token blacklisted with TTL {ttl}s")
+            else:
+                logger.info("[revoke] Token already expired, not blacklisted")
         return RevokeTokenResponse(
             message="Token revoked successfully.",
         )

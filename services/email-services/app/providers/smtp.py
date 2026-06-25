@@ -12,12 +12,14 @@ Compatible with:
     - Gmail SMTP (personal testing)
 """
 import aiosmtplib
+import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from app.core.config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger("uvicorn.error")
 
 async def send_email(
         to_email: str,
@@ -64,9 +66,9 @@ async def send_email(
             start_tls=settings.smtp_use_tls
         )
 
-        print(f"[smtp] Sent email to {to_email} — subject: {subject}")
+        logger.info(f"[smtp] Sent email to {to_email} — subject: {subject}")
         return True
 
     except Exception as exc:
-        print(f"[smtp] Email sending error to {to_email}: {type(exc).__name__}: {exc}")
+        logger.info(f"[smtp] Email sending error to {to_email}: {type(exc).__name__}: {exc}")
         return False

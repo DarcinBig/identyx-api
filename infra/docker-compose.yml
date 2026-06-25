@@ -14,11 +14,13 @@ services:
       - "8100:8100"
     env_file: ../.env
     environment:
-      USER_SERVICE_URL: http://user-services:8001
-      AUTH_SERVICE_URL: http://auth-services:8002
-      TOKEN_SERVICE_URL: http://token-services:8003
-      SESSION_SERVICE_URL: http://session-services:8004
-      EMAIL_SERVICE_URL: http://email-services:8005
+      USER_SERVICE_URL: http://user-service:8001
+      AUTH_SERVICE_URL: http://auth-service:8002
+      TOKEN_SERVICE_URL: http://token-service:8003
+      SESSION_SERVICE_URL: http://session-service:8004
+      EMAIL_SERVICE_URL: http://email-service:8005
+
+      RATE_LIMIT_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/2"
     depends_on:
       - auth-service
       - user-service
@@ -36,17 +38,21 @@ services:
     build:
       context: ../services/auth-services
       dockerfile: Dockerfile
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     container_name: identyx-auth
-    ports:
-      - "8002:8002"
+#    ports:
+#      - "8002:8002"
     env_file: ../.env
     environment:
 #      DATABASE_URL: postgresql://identyx:${POSTGRES_PASSWORD}@postgres-auth:5432/identyx_auth
-      - POSTGRES_HOST=postgres-auth
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=identyx_auth
-      - REDIS_URL=redis://redis:6379
+      POSTGRES_HOST: postgres-auth
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: identyx_auth
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      BRUTE_FORCE_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/2
     depends_on:
       postgres-auth:
         condition: service_healthy
@@ -63,16 +69,19 @@ services:
     build:
       context: ../services/user-services
       dockerfile: Dockerfile
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     container_name: identyx-users
-    ports:
-      - "8001:8001"
+#    ports:
+#      - "8001:8001"
     env_file: ../.env
     environment:
 #      DATABASE_URL: postgresql://identyx:${POSTGRES_PASSWORD}@postgres-users:5432/identyx_users
-      - POSTGRES_HOST=postgres-users
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=identyx_users
+      POSTGRES_HOST: postgres-users
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: identyx_users
     depends_on:
       postgres-users:
         condition: service_healthy
@@ -87,17 +96,20 @@ services:
     build:
       context: ../services/session-services
       dockerfile: Dockerfile
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     container_name: identyx-sessions
-    ports:
-      - "8004:8004"
+#    ports:
+#      - "8004:8004"
     env_file: ../.env
     environment:
 #      DATABASE_URL: postgresql://identyx:${POSTGRES_PASSWORD}@postgres-sessions:5432/identyx_sessions
-      - POSTGRES_HOST=postgres-sessions
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=identyx_sessions
-      - REDIS_URL=redis://redis:6379
+      POSTGRES_HOST: postgres-sessions
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: identyx_sessions
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/${REDIS_DB}
     depends_on:
       postgres-sessions:
         condition: service_healthy
@@ -118,11 +130,11 @@ services:
       - 8.8.8.8
       - 8.8.4.4
     container_name: identyx-tokens
-    ports:
-      - "8003:8003"
+#    ports:
+#      - "8003:8003"
     env_file: ../.env
     environment:
-      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/${REDIS_DB}
     depends_on:
       redis:
         condition: service_healthy
@@ -137,10 +149,18 @@ services:
     build:
       context: ../services/email-services
       dockerfile: Dockerfile
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     container_name: identyx-emails
-    ports:
-      - "8005:8005"
+#    ports:
+#      - "8005:8005"
     env_file: ../.env
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
     networks:
       - identyx-network
     restart: unless-stopped
@@ -212,8 +232,8 @@ services:
     volumes:
       - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
       - redisdata:/data
-    ports:
-      - "63790:6379"  # 63790 exposes Redis on my host.
+#    ports:
+#      - "63790:6379"  # 63790 exposes Redis on my host.
     networks:
       - identyx-network
     healthcheck:

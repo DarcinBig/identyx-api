@@ -36,8 +36,13 @@ PUBLIC_ROUTES: set[tuple[str, str]] = {
 }
 
 def _is_public(method: str, path: str) -> bool:
-    """Returns True if the given method is public."""
-    return (method.upper(), path) in PUBLIC_ROUTES
+    # Normalize the path — remove trailing slash
+    normalized_path = path.rstrip("/") if path != "/" else "/"
+    # Check the uppercase method.
+    return (
+        (method.upper(), normalized_path) in PUBLIC_ROUTES
+        or path.startswith(("/docs", "/redoc", "/openapi"))
+    )
 
 def _extract_bearer_token(request: Request) -> str | None:
     """
@@ -67,6 +72,8 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         method = request.method
         path = request.url.path
+
+        logger.debug("[JWT] %s %s — public: %s", method, path, _is_public(method, path))
 
         # Public routes
         if _is_public(method, path):

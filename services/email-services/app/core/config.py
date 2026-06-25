@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from typing import Optional
 
 class Settings(BaseSettings):
     app_name: str = "Identyx Email Service"
@@ -21,23 +22,38 @@ class Settings(BaseSettings):
     app_base_url: str = "http://localhost:8100"
 
     # Redis events
-    events_redis_host: str = "localhost"
-    events_redis_port: int = 6379
-    events_redis_password: str = ""
+    redis_url: Optional[str] = None
+    redis_host: str = "redis"
+    redis_port: int = 6379
+    redis_password: str = ""
     events_redis_db: int = 1
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
+    # def get_events_redis_url(self) -> str:
+    #     if self.redis_password:
+    #         return (
+    #             f"redis://:{self.redis_password}"
+    #             f"@{self.redis_host}:{self.redis_port}"
+    #             f"/{self.events_redis_db}"
+    #         )
+    #     return (
+    #         f"redis://{self.redis_host}"
+    #         f":{self.redis_port}"
+    #         f"/{self.events_redis_db}"
+    #     )
+
     def get_events_redis_url(self) -> str:
-        if self.events_redis_password:
+        if self.redis_url:
+            return self.redis_url
+        if self.redis_password:
             return (
-                f"redis://:{self.events_redis_password}"
-                f"@{self.events_redis_host}:{self.events_redis_port}"
+                f"redis://:{self.redis_password}"
+                f"@{self.redis_host}:{self.redis_port}"
                 f"/{self.events_redis_db}"
             )
         return (
-            f"redis://{self.events_redis_host}"
-            f":{self.events_redis_port}"
+            f"redis://{self.redis_host}:{self.redis_port}"
             f"/{self.events_redis_db}"
         )
 
