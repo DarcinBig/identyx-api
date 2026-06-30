@@ -7,7 +7,9 @@ requires-python = ">=3.14"
 dependencies = [
     "fakeredis>=2.36.2",
     "fastapi[standard]>=0.136.1",
+    "prometheus-client>=0.25.0",
     "python-jose[cryptography]>=3.5.0",
+    "python-json-logger>=4.1.0",
     "redis>=7.4.0",
 ]
 

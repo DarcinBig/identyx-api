@@ -1,8 +1,14 @@
+import time
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import httpx
-import logging
+
+from app.core.logging.config import setup_logging
+setup_logging(service_name="gateway")
+
+logger = logging.getLogger("gateway")
 
 from app.core.config import get_settings
 from app.middleware.logging import LoggingMiddleware
@@ -11,6 +17,7 @@ from app.middleware.jwt_auth import JWTAuthMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.cors import get_cors_config
+from app.metrics.prometheus import MetricsMiddleware, metrics_response
 import app.http as http_state
 
 from app.routes.auth import router as auth_router
@@ -19,7 +26,8 @@ from app.routes.sessions import router as sessions_router
 from app.routes.tokens import router as tokens_router
 
 settings = get_settings()
-logger = logging.getLogger("gateway")
+
+_start_time = time.time()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -31,12 +39,12 @@ async def lifespan(app: FastAPI):
             pool=5.0,           # pool connection timeout
         )
     )
-    logger.info("[Gateway] started — listening on port %s", settings.gateway_port)
+    logger.info("service_started", extra={"port": settings.gateway_port})
     yield
     if http_state.client:
         await http_state.client.aclose()
         http_state.client = None
-    logger.info("[Gateway] shutdown.")
+    logger.info("service_stopped")
 
 _app = FastAPI(
     title="Identyx API Gateway",
@@ -49,51 +57,70 @@ _app = FastAPI(
 )
 
 # --- CORS --------------------------------------------------
-
 cors_config = get_cors_config()
 _app.add_middleware(CORSMiddleware, **cors_config)
 
 # --- Middlewares -------------------------------------------
-# BaseHTTPMiddleware middlewares (logging, errors, JWT)
-# add_middleware order: last added = first executed
-
 _app.add_middleware(LoggingMiddleware)
 _app.add_middleware(ErrorHandlingMiddleware)
 _app.add_middleware(JWTAuthMiddleware)
 
-# Pure ASGI middlewares — manual wrapping
-# Wraps the FastAPI app directly
-# _app.middleware_stack = None     # reset to force rebuild
-
 # --- Routers -----------------------------------------------
-
 _app.include_router(auth_router)
 _app.include_router(users_router)
 _app.include_router(sessions_router)
 _app.include_router(tokens_router)
 
 # --- Health check ------------------------------------------
-@_app.get("/health", tags=["health"], operation_id="check")
+@_app.get("/health", tags=["observability"], operation_id="check")
 async def health_check():
-    return {
-        "service": "Identyx Gateway",
-        "status": "ok",
-        "version": "0.1.0",
+    import asyncio
+
+    uptime_seconds = int(time.time() - _start_time)
+
+    services_to_check = {
+        "auth-service": f"{settings.auth_service_url}/health",
+        "user-service": f"{settings.user_service_url}/health",
+        "token-service": f"{settings.token_service_url}/health",
+        "session-service": f"{settings.session_service_url}/health",
+        "email-service": f"{settings.email_service_url}/health",
     }
 
-# Pure ASGI wrapper after app construction
-# This wraps the entire app, including all FastAPI middlewares
-# _original_build = app.build_middleware_stack
-#
-# def _build_with_asgi_middlewares():
-#     stack = _original_build()
-#     stack = RateLimitMiddleware(stack)
-#     stack = SecurityHeadersMiddleware(stack)
-#     return stack
-#
-# app.build_middleware = _build_with_asgi_middlewares
+    statuses = {}
 
-# Pure ASGI wrapping AFTER the app is fully built
-# SecurityHeaders wraps everything — executed first on the request
-# RateLimit sits below SecurityHeaders but before the rest
-app = SecurityHeadersMiddleware(RateLimitMiddleware(_app))
+    async def check_service(name: str, url: str):
+        try:
+            if http_state.client:
+                response = await http_state.client.get(url, timeout=3.0)
+                statuses[name] = "ok" if response.status_code == 200 else f"http_{response.status_code}"
+            else:
+                statuses[name] = "client_not_ready"
+        except Exception as exc:
+            statuses[name] = f"error: {type(exc).__name__}"
+
+    await asyncio.gather(
+        *[check_service(name, url) for name, url in services_to_check.items()]
+    )
+
+    overall = "ok" if all(value == "ok" for value in statuses.values()) else "degraded"
+
+    return {
+        "service": "gateway",
+        "status": overall,
+        "version": "0.1.0",
+        "uptime_seconds": uptime_seconds,
+        "services": statuses,
+    }
+
+@_app.get("/metrics", tags=["observability"], operation_id="metrics", include_in_schema=False)
+async def metrics():
+    return metrics_response()
+
+# --- Pure ASGI wrapping ------------------------------------
+# Execution order for incoming requests (outside → inside):
+# SecurityHeaders → RateLimit → Metrics → _app (CORS, Logging, Errors, JWT, routes)
+app = SecurityHeadersMiddleware(
+    RateLimitMiddleware(
+        MetricsMiddleware(_app, service_name="gateway")
+    )
+)

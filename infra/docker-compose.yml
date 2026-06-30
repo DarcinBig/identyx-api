@@ -166,6 +166,27 @@ services:
     restart: unless-stopped
 
   # ─────────────────────────────────────────────
+  # PROMETHEUS — Metrics
+  # ─────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: identyx-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheusdata:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    networks:
+      - identyx-network
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
   # DATABASES — One instance per service
   # ─────────────────────────────────────────────
   postgres-auth:
@@ -251,6 +272,7 @@ volumes:
   pgdata-users:
   pgdata-sessions:
   redisdata:
+  prometheusdata:
 
 # ─────────────────────────────────────────────
 # NETWORK internal insulated

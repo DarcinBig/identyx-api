@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     emails_from_name: str = "Identyx"
 
     # Base URL for links in emails
-    app_base_url: str = "http://localhost:8100"
+    app_base_url: str = "http://gateway:8100"
 
     # Redis events
     redis_url: Optional[str] = None

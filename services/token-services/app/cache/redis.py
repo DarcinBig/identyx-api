@@ -19,12 +19,12 @@ _redis_client: aioredis.Redis | None = None
 async def get_redis() -> aioredis.Redis:
     if _redis_client is None:
         raise RuntimeError(
-            "Redis client not initialized. Please call init_redis() in lifespan first."
+            "Redis client not initialized. Must call init_redis() in lifespan first."
         )
     return _redis_client
 
 async def init_redis() -> None:
-    """Initialize the Redis client. Called in lifespan"""
+    """Initialize the Redis client. Called in lifespan before get_redis()"""
     global _redis_client
     _redis_client = aioredis.from_url(
         settings.get_redis_url(),
