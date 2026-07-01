@@ -1,11 +1,13 @@
-import uuid
 import hashlib
-from datetime import datetime, timezone
-from sqlalchemy import delete, func, select, update
+import uuid
+from datetime import UTC, datetime
+
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.session import Session
 from app.schemas.session import CreateSessionRequest
+
 
 def _has_token(raw_token: str) -> str:
     """SHA-256 hash of a raw refresh token."""
@@ -52,12 +54,12 @@ class SessionRepository:
         Retrieve all active sessions for a user
         Actives = non-revoked and non-expired sessions
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result = await self.db.execute(
             select(Session)
             .where(
                 Session.user_id == user_id,
-                Session.is_revoked == False,
+                Session.is_revoked == False,  # noqa: E712
                 Session.expires_at > now,
             )
             .order_by(Session.created_at.desc())
@@ -66,11 +68,11 @@ class SessionRepository:
 
     async def count_active_by_user(self, user_id: str) -> int:
         """Count the number of active sessions for a user"""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result = await self.db.execute(
             select(func.count(Session.id)).where(
                 Session.user_id == user_id,
-                Session.is_revoked == False,
+                Session.is_revoked == False,  # noqa: E712
                 Session.expires_at > now,
             )
         )
@@ -86,7 +88,7 @@ class SessionRepository:
             .where(Session.refresh_token_hash == token_hash)
             .values(
                 is_revoked=True,
-                updated_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(UTC),
             )
         )
         return result.rowcount > 0
@@ -98,7 +100,7 @@ class SessionRepository:
             .where(Session.id == session_id)
             .values(
                 is_revoked=True,
-                updated_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(UTC),
             )
         )
         return result.rowcount > 0
@@ -110,8 +112,8 @@ class SessionRepository:
         """
         result = await self.db.execute(
             update(Session)
-            .where(Session.user_id == user_id, Session.is_revoked == False)
-            .values(is_revoked=True, updated_at=datetime.now(timezone.utc))
+            .where(Session.user_id == user_id, Session.is_revoked == False)  # noqa: E712
+            .values(is_revoked=True, updated_at=datetime.now(UTC))
         )
         return result.rowcount
 
@@ -126,7 +128,7 @@ class SessionRepository:
             .values(
                 refresh_token_hash=new_token_hash,
                 expires_at=new_expires_at,
-                updated_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(UTC),
             )
         )
         return result.rowcount > 0

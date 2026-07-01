@@ -1,16 +1,10 @@
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.repositories.user_repo import UserRepository
-from app.schemas.user import (
-    UserCreate,
-    UserUpdate,
-    UserResponse,
-    AvatarResponse,
-    UserListResponse
-)
-from app.storage.service import StorageService
 from app.core.config import get_settings
+from app.repositories.user_repo import UserRepository
+from app.schemas.user import AvatarResponse, UserCreate, UserListResponse, UserResponse, UserUpdate
+from app.storage.service import StorageService
 
 settings = get_settings()
 

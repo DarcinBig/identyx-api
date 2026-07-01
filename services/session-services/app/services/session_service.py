@@ -1,19 +1,20 @@
 import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
+
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.repositories.session_repo import SessionRepository
 from app.schemas.session import (
     CreateSessionRequest,
-    ValidateSessionRequest,
+    MessageResponse,
     RevokeSessionRequest,
-    SessionResponse,
-    ValidateSessionResponse,
     SessionListResponse,
-    MessageResponse
+    SessionResponse,
+    ValidateSessionRequest,
+    ValidateSessionResponse,
 )
-from app.core.config import get_settings
 
 settings = get_settings()
 
@@ -64,8 +65,8 @@ class SessionService:
         if session.is_revoked:
             return ValidateSessionResponse(valid=False)
 
-        now = datetime.now(timezone.utc)
-        if session.expires_at.replace(tzinfo=timezone.utc) < now:
+        now = datetime.now(UTC)
+        if session.expires_at.replace(tzinfo=UTC) < now:
             return ValidateSessionResponse(valid=False)
 
         return ValidateSessionResponse(
@@ -167,10 +168,10 @@ class SessionService:
                 detail="Invalid or expired refresh token.",
             )
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         session_expires = session.expires_at
         if session_expires.tzinfo is None:
-            session_expires = session_expires.replace(tzinfo=timezone.utc)
+            session_expires = session_expires.replace(tzinfo=UTC)
 
         if session_expires < now:
             raise HTTPException(

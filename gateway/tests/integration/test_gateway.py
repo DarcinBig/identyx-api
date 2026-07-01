@@ -1,6 +1,8 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from httpx import AsyncClient, ASGITransport
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+
 
 class TestPublicRoutes:
     @pytest.mark.asyncio
@@ -29,29 +31,6 @@ class TestPublicRoutes:
             async with AsyncClient(
                 transport=ASGITransport(app=app),
                 base_url="http://test"
-            ) as async_client:
-                response = await async_client.get(
-                    "/users/me",
-                    headers={"Authorization": "Bearer invalid.token.here"}
-                )
-
-        assert response.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_protected_route_with_invalid_jwt_returns_401(self):
-        from app.main import app
-
-        # Mock HTTP client – the response must be a MagicMock, not an AsyncMock.
-        mock_client = AsyncMock()
-        mock_response = MagicMock()  # ← Key: MagicMock for the response
-        mock_response.status_code = 200
-        mock_response.json = MagicMock(return_value={"valid": False})  # ← synchronous
-        mock_client.post = AsyncMock(return_value=mock_response)
-
-        with patch("app.http.client", mock_client):
-            async with AsyncClient(
-                    transport=ASGITransport(app=app),
-                    base_url="http://test"
             ) as async_client:
                 response = await async_client.get(
                     "/users/me",

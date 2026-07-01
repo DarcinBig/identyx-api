@@ -6,9 +6,10 @@ Each handler corresponds to a Redis Pub/Sub channel.
 The handler receives the raw JSON message and calls the email service.
 """
 import logging
+
 from app.events.types import UserRegisteredEvent
-from app.services.email_service import EmailService
 from app.schemas.email import SendVerificationEmailRequest
+from app.services.email_service import EmailService
 
 logger = logging.getLogger("uvicorn.error")
 # # Shared instance — no state, no database

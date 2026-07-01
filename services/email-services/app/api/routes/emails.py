@@ -1,9 +1,9 @@
 from fastapi import APIRouter, status
 
 from app.schemas.email import (
-    SendVerificationEmailRequest,
+    EmailSentResponse,
     SendResetPasswordEmailRequest,
-    EmailSentResponse
+    SendVerificationEmailRequest,
 )
 from app.services.email_service import EmailService
 

@@ -1,5 +1,6 @@
 import re
 import string
+
 from pydantic import BaseModel, EmailStr, field_validator
 
 USERNAME_MIN = 3
@@ -25,7 +26,7 @@ class RegisterRequest(BaseModel):
             )
         if not USERNAME_PATTERN.match(my_validator):
             raise ValueError(
-                f"Username can only contain letters, numbers, _ and - characters."
+                "Username can only contain letters, numbers, _ and - characters."
             )
         return my_validator
 

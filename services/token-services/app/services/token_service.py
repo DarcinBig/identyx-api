@@ -1,22 +1,19 @@
 import logging
-from datetime import datetime, timezone
-from fastapi import HTTPException, status
+from datetime import UTC, datetime
 
-from app.security.jwt import (
-    generate_access_token,
-    decode_access_token,
-    generate_refresh_token
-)
+from fastapi import HTTPException
+
 from app.cache.redis import blacklist_token, is_blacklisted
+from app.core.config import get_settings
 from app.schemas.token import (
     GenerateTokenRequest,
-    VerifyTokenRequest,
     RevokeTokenRequest,
-    TokenPairResponse,
-    VerifyTokenResponse,
     RevokeTokenResponse,
+    TokenPairResponse,
+    VerifyTokenRequest,
+    VerifyTokenResponse,
 )
-from app.core.config import get_settings
+from app.security.jwt import decode_access_token, generate_access_token, generate_refresh_token
 
 settings = get_settings()
 logger = logging.getLogger("uvicorn.error")
@@ -36,7 +33,7 @@ class TokenService:
             user_id=data.user_id,
         )
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires_in = int((expires_at - now).total_seconds())
 
         raw_refresh, refresh_hash = generate_refresh_token()
@@ -123,8 +120,8 @@ class TokenService:
         exp = payload.get("exp")
 
         if jti and exp:
-            now = datetime.now(timezone.utc)
-            exp_dt = datetime.fromtimestamp(exp, tz=timezone.utc)
+            now = datetime.now(UTC)
+            exp_dt = datetime.fromtimestamp(exp, tz=UTC)
             ttl = max(0, int((exp_dt - now).total_seconds()))
             logger.info(f"[revoke] jti={jti}, ttl={ttl} seconds")
             if ttl > 0:

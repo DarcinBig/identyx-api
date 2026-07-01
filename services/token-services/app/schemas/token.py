@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 
+
 class GenerateTokenRequest(BaseModel):
     """
     Request to generate a token pair.

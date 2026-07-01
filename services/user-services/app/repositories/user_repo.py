@@ -1,10 +1,12 @@
-from datetime import datetime, timezone
 import uuid
-from sqlalchemy import select, update, delete, func
+from datetime import UTC, datetime
+
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate
+
 
 class UserRepository:
     """
@@ -52,7 +54,7 @@ class UserRepository:
             return await self.get_by_id(user_id)
         if "email" in fields:
             fields["email"] = fields["email"].lower().strip()
-        fields["updated_at"] = datetime.now(timezone.utc)
+        fields["updated_at"] = datetime.now(UTC)
         await self.db.execute(
             update(User).where(User.id == user_id).values(**fields)
         )
@@ -70,7 +72,7 @@ class UserRepository:
             .values(
                 avatar_url=avatar_url,
                 avatar_provider=avatar_provider,
-                updated_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(UTC),
             )
         )
         return await self.get_by_id(user_id)

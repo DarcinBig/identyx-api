@@ -16,8 +16,9 @@ We use two separate keys:
     brute:ip:{ip} → protects against distributed attacks
 """
 import logging
+
 import redis.asyncio as aioredis
-from fastapi import HTTPException, Request, status
+from fastapi import HTTPException, status
 
 logger = logging.getLogger("auth.brute_force")
 

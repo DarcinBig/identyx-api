@@ -5,13 +5,13 @@ from app.db.session import get_db
 from app.dependencies import get_current_user_id
 from app.schemas.session import (
     CreateSessionRequest,
-    ValidateSessionRequest,
+    MessageResponse,
     RevokeSessionRequest,
     RotateSessionRequest,
-    SessionResponse,
-    ValidateSessionResponse,
     SessionListResponse,
-    MessageResponse,
+    SessionResponse,
+    ValidateSessionRequest,
+    ValidateSessionResponse,
 )
 from app.services.session_service import SessionService
 

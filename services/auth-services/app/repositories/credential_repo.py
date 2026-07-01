@@ -1,9 +1,11 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.credential import UserCredential
+
 
 class CredentialRepository:
     """
@@ -44,7 +46,7 @@ class CredentialRepository:
             .where(UserCredential.user_id == user_id)
             .values(
                 hashed_password=new_hashed_password,
-                updated_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(UTC),
             )
         )
         return result.rowcount > 0

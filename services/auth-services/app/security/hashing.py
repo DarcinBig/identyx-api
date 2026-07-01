@@ -1,9 +1,5 @@
 from argon2 import PasswordHasher
-from argon2.exceptions import (
-    VerifyMismatchError,
-    VerificationError,
-    InvalidHashError
-)
+from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 
 from app.core.config import get_settings
 

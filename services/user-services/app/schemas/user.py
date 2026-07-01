@@ -1,6 +1,7 @@
 import re
 import string
 from datetime import datetime
+
 from pydantic import BaseModel, EmailStr, field_validator, model_validator
 
 from app.core.config import get_settings
@@ -60,7 +61,7 @@ class UserUpdate(BaseModel):
         return my_validator
 
     @model_validator(mode="after")
-    def at_least_one_field(self) -> "UserUpdate":
+    def at_least_one_field(self) -> UserUpdate:
         if self.email is None and self.username is None:
             raise ValueError("Username or email must be provided.")
         return self
@@ -88,7 +89,7 @@ class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
 
     @classmethod
-    def from_user(cls, user) -> "UserResponse":
+    def from_user(cls, user) -> UserResponse:
         """
         Constructs the response from a User model.
         Resolves the default URL if the user has no avatar.

@@ -1,13 +1,15 @@
 """Unit tests for TokenService."""
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 
 class TestTokenGeneration:
 
     @pytest.mark.asyncio
     async def test_generate_returns_access_and_refresh(self, fake_redis):
-        from app.services.token_service import TokenService
         from app.schemas.token import GenerateTokenRequest
+        from app.services.token_service import TokenService
 
         with patch("app.cache.redis.get_redis", return_value=fake_redis):
             service = TokenService()
@@ -22,8 +24,8 @@ class TestTokenGeneration:
     @pytest.mark.asyncio
     async def test_generate_access_token_is_jwt(self, fake_redis):
         """The access token must be a valid JWT (3 parts separated by .)."""
-        from app.services.token_service import TokenService
         from app.schemas.token import GenerateTokenRequest
+        from app.services.token_service import TokenService
 
         with patch("app.cache.redis.get_redis", return_value=fake_redis):
             service = TokenService()
@@ -35,8 +37,8 @@ class TestTokenGeneration:
     @pytest.mark.asyncio
     async def test_verify_valid_token(self, fake_redis):
         """A freshly generated token must be valid."""
-        from app.services.token_service import TokenService
         from app.schemas.token import GenerateTokenRequest, VerifyTokenRequest
+        from app.services.token_service import TokenService
 
         with patch("app.cache.redis.get_redis", return_value=fake_redis):
             service = TokenService()
@@ -49,8 +51,8 @@ class TestTokenGeneration:
     @pytest.mark.asyncio
     async def test_verify_invalid_token(self, fake_redis):
         """A malformed token must return valid=False."""
-        from app.services.token_service import TokenService
         from app.schemas.token import VerifyTokenRequest
+        from app.services.token_service import TokenService
 
         with patch("app.cache.redis.get_redis", return_value=fake_redis):
             service = TokenService()
@@ -61,8 +63,8 @@ class TestTokenGeneration:
     @pytest.mark.asyncio
     async def test_revoke_blacklists_token(self, fake_redis):
         """A revoked token must return valid=False."""
+        from app.schemas.token import GenerateTokenRequest, RevokeTokenRequest, VerifyTokenRequest
         from app.services.token_service import TokenService
-        from app.schemas.token import GenerateTokenRequest, VerifyTokenRequest, RevokeTokenRequest
 
         with patch("app.cache.redis.get_redis", return_value=fake_redis):
             service = TokenService()

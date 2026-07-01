@@ -1,6 +1,7 @@
 """Unit tests for password validation."""
 import pytest
 
+
 class TestPasswordValidation:
     """
     Tests password validation without touching the database.
@@ -17,8 +18,9 @@ class TestPasswordValidation:
         ("", False),                # empty
     ])
     def test_password_validation(self, password, should_pass):
-        from app.schemas.auth import RegisterRequest
         from pydantic import ValidationError
+
+        from app.schemas.auth import RegisterRequest
 
         try:
             RegisterRequest(

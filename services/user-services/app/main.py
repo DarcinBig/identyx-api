@@ -1,17 +1,18 @@
-import time
 import logging
-from fastapi import FastAPI
+import time
 from contextlib import asynccontextmanager
 
+from fastapi import FastAPI
+
+from app.api.routes.users import router as users_router
+from app.core.config import get_settings
 from app.core.logging.config import setup_logging
+from app.db.session import Base, engine
+from app.metrics.prometheus import MetricsMiddleware, metrics_response
+
 setup_logging(service_name="user-service")
 
 logger = logging.getLogger("user-service")
-
-from app.core.config import get_settings
-from app.db.session import Base, engine
-from app.api.routes.users import router as users_router
-from app.metrics.prometheus import MetricsMiddleware, metrics_response
 
 settings = get_settings()
 

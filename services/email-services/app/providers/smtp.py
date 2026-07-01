@@ -11,10 +11,11 @@ Compatible with:
     - SendGrid, Resend, Mailgun (production) via SMTP relay
     - Gmail SMTP (personal testing)
 """
-import aiosmtplib
 import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+import aiosmtplib
 
 from app.core.config import get_settings
 

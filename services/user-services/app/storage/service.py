@@ -1,8 +1,8 @@
-from fastapi import UploadFile, HTTPException, status
+from fastapi import HTTPException, UploadFile, status
 
+from app.core.config import get_settings
 from app.storage.base import StorageProvider
 from app.storage.github_upload import GithHubStorageProvider
-from app.core.config import get_settings
 
 settings = get_settings()
 
@@ -75,7 +75,7 @@ class StorageService:
         if len(content) > MAX_FILE_SIZE_BYTES:
             raise HTTPException(
                 status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                detail=f"File too large. Maximum size is 5 MB."
+                detail="File too large. Maximum size is 5 MB."
             )
 
         # Construct the filename

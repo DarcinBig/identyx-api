@@ -8,15 +8,16 @@ Responsibilities:
 """
 import os
 from datetime import datetime
+
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from app.core.config import get_settings
 from app.providers.smtp import send_email
 from app.schemas.email import (
-    SendVerificationEmailRequest,
+    EmailSentResponse,
     SendResetPasswordEmailRequest,
-    EmailSentResponse
+    SendVerificationEmailRequest,
 )
-from app.core.config import get_settings
 
 settings = get_settings()
 
