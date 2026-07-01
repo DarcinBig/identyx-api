@@ -1,8 +1,8 @@
+import httpx
 from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse
-import httpx
-import app.http as http_state
 
+import app.http as http_state
 from app.core.config import get_settings
 
 settings = get_settings()

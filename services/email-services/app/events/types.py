@@ -1,6 +1,6 @@
-from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
 import json
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 
 # --- Channel names --------------------------------------------
 
@@ -24,13 +24,13 @@ class UserRegisteredEvent:
 
     def __post_init__(self):
         if not self.occurred_at:
-            self.occurred_at = datetime.now(timezone.utc).isoformat()
+            self.occurred_at = datetime.now(UTC).isoformat()
 
     def to_json(self) -> str:
         return json.dumps(asdict(self))
 
     @classmethod
-    def from_json(cls, data: str) ->  "UserRegisteredEvent":
+    def from_json(cls, data: str) ->  UserRegisteredEvent:
         return cls(**json.loads(data))
 
 @dataclass
@@ -44,13 +44,13 @@ class UserDeletedEvent:
 
     def __post_init__(self):
         if not self.occurred_at:
-            self.occurred_at = datetime.now(timezone.utc).isoformat()
+            self.occurred_at = datetime.now(UTC).isoformat()
 
     def to_json(self) -> str:
         return json.dumps(asdict(self))
 
     @classmethod
-    def from_json(cls, data: str) -> "UserDeletedEvent":
+    def from_json(cls, data: str) -> UserDeletedEvent:
         return cls(**json.loads(data))
 
 @dataclass
@@ -65,11 +65,11 @@ class AuthLoginEvent:
 
     def __post_init__(self):
         if not self.occurred_at:
-            self.occurred_at = datetime.now(timezone.utc).isoformat()
+            self.occurred_at = datetime.now(UTC).isoformat()
 
     def to_json(self) -> str:
         return json.dumps(asdict(self))
 
     @classmethod
-    def from_json(cls, data: str) -> "AuthLoginEvent":
+    def from_json(cls, data: str) -> AuthLoginEvent:
         return cls(**json.loads(data))

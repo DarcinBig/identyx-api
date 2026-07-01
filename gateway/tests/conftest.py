@@ -1,5 +1,7 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 
 @pytest.fixture(autouse=True)
 def mock_rate_limit_redis():

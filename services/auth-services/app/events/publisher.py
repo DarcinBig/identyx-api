@@ -1,5 +1,6 @@
 import redis.asyncio as aioredis
 
+
 class EventPublisher:
     """
     Publishes events to Redis Pub/Sub channels.
@@ -20,13 +21,22 @@ class EventPublisher:
             decode_responses=True,
         )
         await self._client.ping()
-        print(f"[EventPublisher] Connected to Redis")
+        print("[EventPublisher] Connected to Redis")
 
     async def close(self) -> None:
         """Closes Redis connection."""
         if self._client:
             await self._client.aclose()
             self._client = None
+
+    async def check_connection(self) -> bool:
+        if not self._client:
+            return False
+        try:
+            await self._client.ping()
+            return True
+        except Exception:
+            return False
 
     async def publish(self, channel: str, event) -> None:
         """

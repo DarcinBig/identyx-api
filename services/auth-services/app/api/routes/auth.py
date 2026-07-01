@@ -3,12 +3,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.schemas.auth import (
-    RegisterRequest,
+    AuthResponse,
     LoginRequest,
     LogoutRequest,
-    RefreshRequest,
-    AuthResponse,
     MessageResponse,
+    RefreshRequest,
+    RegisterRequest,
 )
 from app.services.auth_service import AuthService
 

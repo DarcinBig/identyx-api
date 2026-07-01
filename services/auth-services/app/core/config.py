@@ -1,7 +1,8 @@
-from pydantic_settings import BaseSettings
-from pydantic import model_validator
 from functools import lru_cache
-from typing import Optional
+
+from pydantic import model_validator
+from pydantic_settings import BaseSettings
+
 
 class Settings(BaseSettings):
     app_name: str = "Identyx Auth Service"
@@ -21,7 +22,7 @@ class Settings(BaseSettings):
     # redis_url: str = "redis://localhost:6379"
 
     # Redis events
-    redis_url: Optional[str] = None
+    redis_url: str | None = None
     redis_host: str = "redis"
     redis_port: int = 6379
     redis_password: str = ""
@@ -57,7 +58,7 @@ class Settings(BaseSettings):
     }
 
     @model_validator(mode="after")
-    def build_database_url(self) -> "Settings":
+    def build_database_url(self) -> Settings:
         self.database_url = (
             f"postgresql://"
             f"{self.postgres_user}:{self.postgres_password}"
@@ -93,6 +94,6 @@ class Settings(BaseSettings):
             f"/{self.events_redis_db}"
         )
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     return Settings()

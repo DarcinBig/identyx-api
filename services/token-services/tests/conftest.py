@@ -1,9 +1,11 @@
-import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-import fakeredis.aioredis as aioredis
 from unittest.mock import patch
 
+import fakeredis.aioredis as aioredis
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+
 from app.main import app
+
 
 @pytest_asyncio.fixture
 async def fake_redis():

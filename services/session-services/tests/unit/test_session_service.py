@@ -1,7 +1,9 @@
 """Unit tests for SessionService."""
-import pytest
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
-from datetime import datetime, timezone, timedelta
+
+import pytest
+
 
 class TestSessionService:
     @pytest.mark.asyncio
@@ -9,8 +11,8 @@ class TestSessionService:
         """Validating an unknown token must return valid=False."""
         mock_db = AsyncMock()
 
-        from app.services.session_service import SessionService
         from app.schemas.session import ValidateSessionRequest
+        from app.services.session_service import SessionService
 
         service = SessionService(mock_db)
         service.repo = AsyncMock()
@@ -28,14 +30,14 @@ class TestSessionService:
         """Validating a revoked session must return valid=False."""
         mock_db = AsyncMock()
 
-        from app.services.session_service import SessionService
         from app.schemas.session import ValidateSessionRequest
+        from app.services.session_service import SessionService
 
         service = SessionService(mock_db)
 
         mock_session = MagicMock()
         mock_session.is_revoked = True
-        mock_session.expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+        mock_session.expires_at = datetime.now(UTC) + timedelta(days=7)
         service.repo = AsyncMock()
         service.repo.get_by_token_hash = AsyncMock(return_value=mock_session)
 
@@ -50,14 +52,14 @@ class TestSessionService:
         """Validating an expired session must return valid=False."""
         mock_db = AsyncMock()
 
-        from app.services.session_service import SessionService
         from app.schemas.session import ValidateSessionRequest
+        from app.services.session_service import SessionService
 
         service = SessionService(mock_db)
 
         mock_session = MagicMock()
         mock_session.is_revoked = False
-        mock_session.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
+        mock_session.expires_at = datetime.now(UTC) - timedelta(days=1)
         mock_session.user_id = "uuid-123"
         mock_session.id = "session-uuid"
         service.repo = AsyncMock()
@@ -74,14 +76,14 @@ class TestSessionService:
         """Validating a valid session must return valid=True along with the user_id."""
         mock_db = AsyncMock()
 
-        from app.services.session_service import SessionService
         from app.schemas.session import ValidateSessionRequest
+        from app.services.session_service import SessionService
 
         service = SessionService(mock_db)
 
         mock_session = MagicMock()
         mock_session.is_revoked = False
-        mock_session.expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+        mock_session.expires_at = datetime.now(UTC) + timedelta(days=7)
         mock_session.user_id = "uuid-123"
         mock_session.id = "session-uuid"
         service.repo = AsyncMock()

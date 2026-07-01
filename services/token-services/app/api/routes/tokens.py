@@ -1,15 +1,16 @@
 import logging
 import time
+
 from fastapi import APIRouter, HTTPException, status
 from jose import jwt
 
 from app.schemas.token import (
     GenerateTokenRequest,
-    VerifyTokenRequest,
     RevokeTokenRequest,
-    TokenPairResponse,
-    VerifyTokenResponse,
     RevokeTokenResponse,
+    TokenPairResponse,
+    VerifyTokenRequest,
+    VerifyTokenResponse,
 )
 from app.services.token_service import TokenService
 

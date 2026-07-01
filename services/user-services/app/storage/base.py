@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 
+
 class StorageProvider(ABC):
     """
     Abstract interface for avatar storage providers.

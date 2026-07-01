@@ -1,8 +1,10 @@
 """Unit tests for AuthService using mocks."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from fastapi import HTTPException
+
 
 class TestAuthServiceRegister:
 
@@ -26,8 +28,8 @@ class TestAuthServiceRegister:
                 return_value=mock_response
             )
 
-            from app.services.auth_service import AuthService
             from app.schemas.auth import RegisterRequest
+            from app.services.auth_service import AuthService
 
             service = AuthService(mock_db)
 
@@ -65,8 +67,8 @@ class TestAuthServiceRegister:
                 return_value=mock_response
             )
 
-            from app.services.auth_service import AuthService
             from app.schemas.auth import RegisterRequest
+            from app.services.auth_service import AuthService
 
             service = AuthService(mock_db)
 
@@ -88,9 +90,9 @@ class TestAuthServiceLogin:
         """Login must raise an HTTPException 401 if the password is incorrect."""
         mock_db = AsyncMock()
 
-        from app.services.auth_service import AuthService
         from app.schemas.auth import LoginRequest
         from app.security.hashing import hash_password
+        from app.services.auth_service import AuthService
 
         service = AuthService(mock_db)
 
@@ -125,9 +127,9 @@ class TestAuthServiceLogin:
         """A successful login must return an access_token and a refresh_token."""
         mock_db = AsyncMock()
 
-        from app.services.auth_service import AuthService
         from app.schemas.auth import LoginRequest
         from app.security.hashing import hash_password
+        from app.services.auth_service import AuthService
 
         service = AuthService(mock_db)
 

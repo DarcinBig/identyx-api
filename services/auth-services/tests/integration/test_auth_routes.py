@@ -1,6 +1,8 @@
 """Integration tests for auth-service routes."""
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+
 
 class TestRegisterEndpoint:
 

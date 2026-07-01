@@ -1,8 +1,8 @@
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
+
 import redis.asyncio as aioredis
-from redis.asyncio.connection import SSLConnection
-from typing import Awaitable, Callable
 
 Handler = Callable[[str], Awaitable[None]]
 logger = logging.getLogger("uvicorn.error")

@@ -1,6 +1,7 @@
-from pydantic_settings import BaseSettings
 from functools import lru_cache
-from typing import Optional
+
+from pydantic_settings import BaseSettings
+
 
 class Settings(BaseSettings):
     app_name: str = "Identyx Email Service"
@@ -22,7 +23,7 @@ class Settings(BaseSettings):
     app_base_url: str = "http://gateway:8100"
 
     # Redis events
-    redis_url: Optional[str] = None
+    redis_url: str | None = None
     redis_host: str = "redis"
     redis_port: int = 6379
     redis_password: str = ""
@@ -57,6 +58,6 @@ class Settings(BaseSettings):
             f"/{self.events_redis_db}"
         )
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     return Settings()

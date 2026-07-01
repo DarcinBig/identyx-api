@@ -1,11 +1,11 @@
 from app.schemas.auth import (
-    RegisterRequest,
+    AuthResponse,
     LoginRequest,
     LogoutRequest,
-    RefreshRequest,
-    AuthResponse,
-    UserPublic,
     MessageResponse,
+    RefreshRequest,
+    RegisterRequest,
+    UserPublic,
 )
 
 __all__ = [

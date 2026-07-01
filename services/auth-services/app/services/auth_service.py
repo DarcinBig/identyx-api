@@ -1,24 +1,25 @@
+from datetime import UTC, datetime, timedelta
+
 import httpx
-from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.repositories.credential_repo import CredentialRepository
-from app.schemas.auth import (
-    RegisterRequest,
-    LoginRequest,
-    AuthResponse,
-    UserPublic,
-    MessageResponse,
-)
-from app.security.hashing import hash_password, verify_password, needs_rehash
 from app.core.config import get_settings
 from app.events.types import (
-    CHANNEL_USER_REGISTERED,
     CHANNEL_AUTH_LOGIN,
+    CHANNEL_USER_REGISTERED,
+    AuthLoginEvent,
     UserRegisteredEvent,
-    AuthLoginEvent
 )
+from app.repositories.credential_repo import CredentialRepository
+from app.schemas.auth import (
+    AuthResponse,
+    LoginRequest,
+    MessageResponse,
+    RegisterRequest,
+    UserPublic,
+)
+from app.security.hashing import hash_password, needs_rehash, verify_password
 
 settings = get_settings()
 
@@ -227,7 +228,7 @@ class AuthService:
             device_info: str | None = None
     ) -> None:
         """Create a session in session service"""
-        expires_at = datetime.now(timezone.utc) + timedelta(
+        expires_at = datetime.now(UTC) + timedelta(
             days=settings.refresh_token_expires_days
         )
 
@@ -289,7 +290,7 @@ class AuthService:
 
     async def _rotate_session(self, old_refresh_token: str, new_refresh_token_hash: str) -> None:
         """Performs the refresh token rotation in session-service."""
-        new_expires_at = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expires_days)
+        new_expires_at = datetime.now(UTC) + timedelta(days=settings.refresh_token_expires_days)
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
@@ -401,6 +402,7 @@ class AuthService:
         even if email-service is temporarily down.
         """
         import base64
+
         from app.main import event_publisher
 
         if not event_publisher:

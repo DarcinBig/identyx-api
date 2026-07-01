@@ -1,7 +1,7 @@
 from app.schemas.email import (
-    SendVerificationEmailRequest,
+    EmailSentResponse,
     SendResetPasswordEmailRequest,
-    EmailSentResponse
+    SendVerificationEmailRequest,
 )
 
 __all__ = [

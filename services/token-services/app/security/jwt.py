@@ -16,13 +16,13 @@ Refresh token:
     - SHA-256 hashed before storage (sessions-service)
     - Never decoded — only compared to the stored hash
 """
-import uuid
-import secrets
 import hashlib
-from datetime import datetime, timezone, timedelta
+import secrets
+import uuid
+from datetime import UTC, datetime, timedelta
 
-from jose import jwt, JWTError, ExpiredSignatureError
 from fastapi import HTTPException, status
+from jose import ExpiredSignatureError, JWTError, jwt
 
 from app.core.config import get_settings
 
@@ -38,7 +38,7 @@ def generate_access_token(user_id: str) -> tuple[str, str, datetime]:
         - The expiration date (UTC datetime)
     """
     jti = str(uuid.uuid4())
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expires_at = now + timedelta(
         minutes=settings.access_token_expire_minutes,
     )
