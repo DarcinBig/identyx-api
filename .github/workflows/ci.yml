@@ -81,6 +81,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Lowercase owner
+        id: owner
+        run: echo "name=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -97,8 +101,8 @@ jobs:
           context: ${{ matrix.service.context }}
           push: true
           tags: |
-            ghcr.io/${{ lower(github.repository_owner) }}/identyx-${{ matrix.service.name }}:${{ github.sha }}
-            ghcr.io/${{ lower(github.repository_owner) }}/identyx-${{ matrix.service.name }}:latest
-            ghcr.io/${{ lower(github.repository_owner) }}/identyx-${{ matrix.service.name }}:${{ github.ref_name }}
+            ghcr.io/${{ steps.owner.outputs.name }}/identyx-${{ matrix.service.name }}:${{ github.sha }}
+            ghcr.io/${{ steps.owner.outputs.name }}/identyx-${{ matrix.service.name }}:latest
+            ghcr.io/${{ steps.owner.outputs.name }}/identyx-${{ matrix.service.name }}:${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
