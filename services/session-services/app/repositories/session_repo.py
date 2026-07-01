@@ -59,7 +59,7 @@ class SessionRepository:
             select(Session)
             .where(
                 Session.user_id == user_id,
-                not Session.is_revoked,
+                Session.is_revoked == False,  # noqa: E712
                 Session.expires_at > now,
             )
             .order_by(Session.created_at.desc())
@@ -72,7 +72,7 @@ class SessionRepository:
         result = await self.db.execute(
             select(func.count(Session.id)).where(
                 Session.user_id == user_id,
-                not Session.is_revoked,
+                Session.is_revoked == False,  # noqa: E712
                 Session.expires_at > now,
             )
         )
@@ -112,7 +112,7 @@ class SessionRepository:
         """
         result = await self.db.execute(
             update(Session)
-            .where(Session.user_id == user_id, not Session.is_revoked)
+            .where(Session.user_id == user_id, Session.is_revoked == False)  # noqa: E712
             .values(is_revoked=True, updated_at=datetime.now(UTC))
         )
         return result.rowcount

@@ -86,10 +86,17 @@ async def health_check():
         logger.error("health_check_db_failed", extra={"error": str(exc)})
 
     # Check Redis (events)
-    if event_publisher and await event_publisher.check_connection():
-        redis_status = "ok"
+    redis_status = "ok"
+    if event_publisher:
+        try:
+            if await event_publisher.check_connection():
+                redis_status = "ok"
+            else:
+                redis_status = "error: connection_failed"
+        except Exception as exc:
+            redis_status = f"error: {exc}"
     else:
-        redis_status = "disabled" if event_publisher is None else "error"
+        redis_status = "disabled"
 
     overall = "ok" if db_status == "ok" else "degraded"
 
