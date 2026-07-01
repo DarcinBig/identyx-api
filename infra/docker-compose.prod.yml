@@ -1,10 +1,21 @@
-# Usage : docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Usage (pull pre-built images):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Usage (build locally):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml build
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Override the image tag with IMAGE_TAG env var (default: latest):
+#   IMAGE_TAG=v0.1.0 docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
 
 services:
 
   gateway:
-    # Using the GHCR image instead of the local build
-    image: ghcr.io/darcinbig/identyx-gateway:v0.1.0   # Replace 'latest' with the desired version (manually managed version)
+    image: ghcr.io/darcinbig/identyx-gateway:${IMAGE_TAG:-latest}
+    build:
+      context: ../gateway
+      dockerfile: Dockerfile
     command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100", "--workers", "2"]
     restart: always
     deploy:
@@ -19,7 +30,10 @@ services:
         max-file: "3"
 
   auth-service:
-    image: ghcr.io/darcinbig/identyx-auth-service:v0.1.0
+    image: ghcr.io/darcinbig/identyx-auth-service:${IMAGE_TAG:-latest}
+    build:
+      context: ../services/auth-services
+      dockerfile: Dockerfile
     command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "2"]
     restart: always
     deploy:
@@ -34,7 +48,10 @@ services:
         max-file: "3"
 
   user-service:
-    image: ghcr.io/darcinbig/identyx-user-service:v0.1.0
+    image: ghcr.io/darcinbig/identyx-user-service:${IMAGE_TAG:-latest}
+    build:
+      context: ../services/user-services
+      dockerfile: Dockerfile
     command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2"]
     restart: always
     deploy:
@@ -49,7 +66,10 @@ services:
         max-file: "3"
 
   token-service:
-    image: ghcr.io/darcinbig/identyx-token-service:v0.1.0
+    image: ghcr.io/darcinbig/identyx-token-service:${IMAGE_TAG:-latest}
+    build:
+      context: ../services/token-services
+      dockerfile: Dockerfile
     command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8003", "--workers", "2"]
     restart: always
     deploy:
@@ -64,7 +84,10 @@ services:
         max-file: "3"
 
   session-service:
-    image: ghcr.io/darcinbig/identyx-session-service:v0.1.0
+    image: ghcr.io/darcinbig/identyx-session-service:${IMAGE_TAG:-latest}
+    build:
+      context: ../services/session-services
+      dockerfile: Dockerfile
     command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004", "--workers", "2"]
     restart: always
     deploy:
@@ -79,7 +102,10 @@ services:
         max-file: "3"
 
   email-service:
-    image: ghcr.io/darcinbig/identyx-email-service:v0.1.0
+    image: ghcr.io/darcinbig/identyx-email-service:${IMAGE_TAG:-latest}
+    build:
+      context: ../services/email-services
+      dockerfile: Dockerfile
     command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8005", "--workers", "1"]
     restart: always
     deploy:
