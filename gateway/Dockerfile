@@ -1,28 +1,40 @@
-FROM python:3.14-slim
-LABEL authors="darcin-bigabiro"
+FROM python:3.14-slim AS builder
+LABEL authors="darcin-biganiro"
 
 WORKDIR /app
 
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libffi-dev \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Installer uv (gestionnaire de packages)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Copy the dependency manifest
 COPY pyproject.toml .
-
-# Install the dependencies with uv in /app/.venv
 RUN uv sync --no-dev
 
-# Copy the source code
 COPY . .
+
+FROM python:3.14-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -r appuser && useradd -r -g appuser appuser
+
+COPY --from=builder /app /app
+
+RUN chown -R appuser:appuser /app
+
+USER appuser
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8100/health || exit 1
 
 EXPOSE 8100
 
-# Launch via uv run to use the venv managed by uv
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100", "--reload"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100"]

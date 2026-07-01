@@ -12,3 +12,18 @@ dependencies = [
     "python-json-logger>=4.1.0",
     "redis>=8.0.0",
 ]
+
+[tool.uv]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.20",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
