@@ -1,0 +1,35 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+
+  - job_name: "identyx-gateway"
+    static_configs:
+      - targets: ["gateway:8100"]
+    metrics_path: /metrics
+
+  - job_name: "identyx-auth"
+    static_configs:
+      - targets: ["auth-service:8002"]
+    metrics_path: /metrics
+
+  - job_name: "identyx-users"
+    static_configs:
+      - targets: ["user-service:8001"]
+    metrics_path: /metrics
+
+  - job_name: "identyx-tokens"
+    static_configs:
+      - targets: ["token-service:8003"]
+    metrics_path: /metrics
+
+  - job_name: "identyx-sessions"
+    static_configs:
+      - targets: ["session-service:8004"]
+    metrics_path: /metrics
+
+  - job_name: "identyx-emails"
+    static_configs:
+      - targets: ["email-service:8005"]
+    metrics_path: /metrics

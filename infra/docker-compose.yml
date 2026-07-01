@@ -9,6 +9,7 @@ services:
     build:
       context: ../gateway
       dockerfile: Dockerfile
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100", "--reload"]
     container_name: identyx-gateway
     ports:
       - "8100:8100"
@@ -22,14 +23,25 @@ services:
 
       RATE_LIMIT_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/2"
     depends_on:
-      - auth-service
-      - user-service
-      - session-service
-      - token-service
-      - email-service
+      auth-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      session-service:
+        condition: service_healthy
+      token-service:
+        condition: service_healthy
+      email-service:
+        condition: service_healthy
     networks:
       - identyx-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ─────────────────────────────────────────────
   # AUTH SERVICE — Register / Login / Logout
@@ -38,6 +50,7 @@ services:
     build:
       context: ../services/auth-services
       dockerfile: Dockerfile
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--reload"]
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -61,6 +74,12 @@ services:
     networks:
       - identyx-network
     restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8002/health" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ─────────────────────────────────────────────
   # USER SERVICE — User profiles
@@ -69,6 +88,7 @@ services:
     build:
       context: ../services/user-services
       dockerfile: Dockerfile
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -88,6 +108,12 @@ services:
     networks:
       - identyx-network
     restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8001/health" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ─────────────────────────────────────────────
   # SESSION SERVICE — Sessions and refresh tokens
@@ -96,6 +122,7 @@ services:
     build:
       context: ../services/session-services
       dockerfile: Dockerfile
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004", "--reload"]
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -118,6 +145,12 @@ services:
     networks:
       - identyx-network
     restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8004/health" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ─────────────────────────────────────────────
   # TOKEN SERVICE — JWT generation / validation
@@ -126,6 +159,7 @@ services:
     build:
       context: ../services/token-services
       dockerfile: Dockerfile
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8003", "--reload"]
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -141,6 +175,12 @@ services:
     networks:
       - identyx-network
     restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8003/health" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ─────────────────────────────────────────────
   # EMAIL SERVICE — Sending emails
@@ -149,6 +189,7 @@ services:
     build:
       context: ../services/email-services
       dockerfile: Dockerfile
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8005", "--reload"]
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -161,6 +202,33 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    networks:
+      - identyx-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8005/health" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ─────────────────────────────────────────────
+  # PROMETHEUS — Metrics
+  # ─────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: identyx-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheusdata:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
     networks:
       - identyx-network
     restart: unless-stopped
@@ -251,6 +319,7 @@ volumes:
   pgdata-users:
   pgdata-sessions:
   redisdata:
+  prometheusdata:
 
 # ─────────────────────────────────────────────
 # NETWORK internal insulated

@@ -5,5 +5,33 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "fastapi[standard]>=0.138.2",
+    "prometheus-client>=0.25.0",
+    "python-json-logger>=4.1.0",
     "redis>=8.0.0",
 ]
+
+[tool.uv]
+
+[dependency-groups]
+dev = [
+    "factory-boy>=3.3.3",
+    "fakeredis>=2.36.2",
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-mock>=3.15.1",
+    "ruff>=0.15.20",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]

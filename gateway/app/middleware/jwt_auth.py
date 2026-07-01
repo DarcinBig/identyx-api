@@ -30,6 +30,7 @@ PUBLIC_ROUTES: set[tuple[str, str]] = {
     ("POST", "/auth/register"),
     ("POST", "/auth/login"),
     ("GET", "/health"),
+    ("GET", "/metrics"),
     ("GET", "/docs"),
     ("GET", "/redoc"),
     ("GET", "/openapi.json"),

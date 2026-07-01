@@ -1,0 +1,94 @@
+# Usage : docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+
+  gateway:
+    # Using the GHCR image instead of the local build
+    image: ghcr.io/darcinbig/identyx-gateway:v0.1.0   # Replace 'latest' with the desired version (manually managed version)
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100", "--workers", "2"]
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  auth-service:
+    image: ghcr.io/darcinbig/identyx-auth-service:v0.1.0
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "2"]
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  user-service:
+    image: ghcr.io/darcinbig/identyx-user-service:v0.1.0
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2"]
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  token-service:
+    image: ghcr.io/darcinbig/identyx-token-service:v0.1.0
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8003", "--workers", "2"]
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  session-service:
+    image: ghcr.io/darcinbig/identyx-session-service:v0.1.0
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004", "--workers", "2"]
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  email-service:
+    image: ghcr.io/darcinbig/identyx-email-service:v0.1.0
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8005", "--workers", "1"]
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

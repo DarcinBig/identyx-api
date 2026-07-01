@@ -1,19 +1,38 @@
+import time
+import logging
+
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
+from app.core.logging.config import setup_logging
+setup_logging(service_name="token-service")
+
+logger = logging.getLogger("token-service")
+
 from app.core.config import get_settings
-from app.cache.redis import init_redis, close_redis
+from app.cache.redis import init_redis, close_redis, get_redis
 from app.api.routes.tokens import router as tokens_router
+from app.metrics.prometheus import MetricsMiddleware, metrics_response
 
 settings = get_settings()
 
+_start_time = time.time()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_redis()
-    print("[Token Session] started — Redis connected")
+    try:
+        await init_redis()
+        client = await get_redis()
+        await client.ping()
+        logger.info("redis_connected")
+    except Exception as exc:
+        logger.warning("redis_connection_failed", extra={"error": str(exc)})
+
+    logger.info("service_started")
     yield
+
     await close_redis()
-    print("[Token Session] shutdown.")
+    logger.info("service_stopped")
 
 app = FastAPI(
     title="Identyx Token Service",
@@ -25,12 +44,34 @@ app = FastAPI(
     redirect_slashes=False,
 )
 
+app.add_middleware(MetricsMiddleware, service_name="token-service")
+
 app.include_router(tokens_router)
 
-@app.get("/health", tags=["health"], operation_id="check")
+@app.get("/health", tags=["observability"], operation_id="check")
 async def health_check():
+    uptime_seconds = int(time.time() - _start_time)
+
+    redis_status = "ok"
+    try:
+        client = await get_redis()
+        await client.ping()
+    except Exception as exc:
+        redis_status = f"error: {exc}"
+        logger.info("health_check_failed", extra={"error": str(exc)})
+
+    overall = "ok" if redis_status == "ok" else "degraded"
+
     return {
-        "service": "Identyx Token Service",
-        "status": "ok",
+        "service": "token-service",
+        "status": overall,
         "version": "0.1.0",
+        "uptime_seconds": uptime_seconds,
+        "dependencies": {
+            "redis":  redis_status,
+        }
     }
+
+app.get("/metrics", tags=["observability"], operation_id="metrics", include_in_schema=False)
+async def metrics():
+    return metrics_response()
