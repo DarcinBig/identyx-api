@@ -1,20 +1,21 @@
-import time
 import asyncio
 import logging
-from fastapi import FastAPI
+import time
 from contextlib import asynccontextmanager
 
+from fastapi import FastAPI
+
+from app.api.routes.emails import router as emails_router
+from app.core.config import get_settings
 from app.core.logging.config import setup_logging
+from app.events.handlers import handler_user_registered
+from app.events.subscriber import EventSubscriber
+from app.events.types import CHANNEL_USER_REGISTERED
+from app.metrics.prometheus import MetricsMiddleware, metrics_response
+
 setup_logging(service_name="email-service")
 
 logger = logging.getLogger("email-service")
-
-from app.core.config import get_settings
-from app.api.routes.emails import router as emails_router
-from app.events.subscriber import EventSubscriber
-from app.events.types import CHANNEL_USER_REGISTERED
-from app.events.handlers import handler_user_registered
-from app.metrics.prometheus import MetricsMiddleware, metrics_response
 
 settings = get_settings()
 
@@ -29,7 +30,7 @@ event_subscriber = EventSubscriber(
 logger.info("redis_events_url_configured", extra={"redis_url": settings.get_events_redis_url()[:30]})
 event_subscriber.on(CHANNEL_USER_REGISTERED)(handler_user_registered)
 
-_listener_track = None
+_listener_task = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

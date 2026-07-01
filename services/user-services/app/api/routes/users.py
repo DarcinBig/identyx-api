@@ -3,13 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.dependencies import get_current_user_id
-from app.schemas.user import (
-    UserCreate,
-    UserUpdate,
-    UserResponse,
-    AvatarResponse,
-    UserListResponse
-)
+from app.schemas.user import AvatarResponse, UserCreate, UserResponse, UserUpdate
 from app.services.user_service import UserService
 
 router = APIRouter(prefix="/users", tags=["users"])

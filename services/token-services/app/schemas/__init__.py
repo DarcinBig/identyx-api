@@ -1,10 +1,10 @@
 from app.schemas.token import (
     GenerateTokenRequest,
-    VerifyTokenRequest,
     RevokeTokenRequest,
-    TokenPairResponse,
-    VerifyTokenResponse,
     RevokeTokenResponse,
+    TokenPairResponse,
+    VerifyTokenRequest,
+    VerifyTokenResponse,
 )
 
 __all__ = [

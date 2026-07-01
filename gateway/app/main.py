@@ -1,29 +1,29 @@
-import time
 import logging
+import time
+from contextlib import asynccontextmanager
+
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-import httpx
 
+import app.http as http_state
+from app.core.config import get_settings
 from app.core.logging.config import setup_logging
+from app.metrics.prometheus import MetricsMiddleware, metrics_response
+from app.middleware.cors import get_cors_config
+from app.middleware.errors import ErrorHandlingMiddleware
+from app.middleware.jwt_auth import JWTAuthMiddleware
+from app.middleware.logging import LoggingMiddleware
+from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
+from app.routes.auth import router as auth_router
+from app.routes.sessions import router as sessions_router
+from app.routes.tokens import router as tokens_router
+from app.routes.users import router as users_router
+
 setup_logging(service_name="gateway")
 
 logger = logging.getLogger("gateway")
-
-from app.core.config import get_settings
-from app.middleware.logging import LoggingMiddleware
-from app.middleware.errors import ErrorHandlingMiddleware
-from app.middleware.jwt_auth import JWTAuthMiddleware
-from app.middleware.rate_limit import RateLimitMiddleware
-from app.middleware.security_headers import SecurityHeadersMiddleware
-from app.middleware.cors import get_cors_config
-from app.metrics.prometheus import MetricsMiddleware, metrics_response
-import app.http as http_state
-
-from app.routes.auth import router as auth_router
-from app.routes.users import router as users_router
-from app.routes.sessions import router as sessions_router
-from app.routes.tokens import router as tokens_router
 
 settings = get_settings()
 

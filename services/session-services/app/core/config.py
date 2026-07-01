@@ -1,6 +1,8 @@
-from pydantic_settings import BaseSettings
-from pydantic import model_validator
 from functools import lru_cache
+
+from pydantic import model_validator
+from pydantic_settings import BaseSettings
+
 
 class Settings(BaseSettings):
     app_name: str = "Identyx Session Service"
@@ -30,7 +32,7 @@ class Settings(BaseSettings):
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @model_validator(mode="after")
-    def build_database_url(self) -> "Settings":
+    def build_database_url(self) -> Settings:
         self.database_url = (
             f"postgresql://"
             f"{self.postgres_user}:{self.postgres_password}"
@@ -39,6 +41,6 @@ class Settings(BaseSettings):
         )
         return self
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     return Settings()

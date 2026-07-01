@@ -1,18 +1,18 @@
-import time
 import logging
-
-from fastapi import FastAPI
+import time
 from contextlib import asynccontextmanager
 
+from fastapi import FastAPI
+
+from app.api.routes.tokens import router as tokens_router
+from app.cache.redis import close_redis, get_redis, init_redis
+from app.core.config import get_settings
 from app.core.logging.config import setup_logging
+from app.metrics.prometheus import MetricsMiddleware, metrics_response
+
 setup_logging(service_name="token-service")
 
 logger = logging.getLogger("token-service")
-
-from app.core.config import get_settings
-from app.cache.redis import init_redis, close_redis, get_redis
-from app.api.routes.tokens import router as tokens_router
-from app.metrics.prometheus import MetricsMiddleware, metrics_response
 
 settings = get_settings()
 
@@ -72,6 +72,6 @@ async def health_check():
         }
     }
 
-app.get("/metrics", tags=["observability"], operation_id="metrics", include_in_schema=False)
+@app.get("/metrics", tags=["observability"], operation_id="metrics", include_in_schema=False)
 async def metrics():
     return metrics_response()

@@ -13,10 +13,12 @@ Path groups and their limits:
     - /auth/register → 5 req/min
     - all other groups → 100 req/min (global)
 """
-import time
-import logging
 import json
+import logging
+import time
+
 import redis.asyncio as aioredis
+
 from app.core.config import get_settings
 
 settings = get_settings()

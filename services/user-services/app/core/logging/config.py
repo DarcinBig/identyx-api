@@ -18,7 +18,9 @@ Format of each log line:
 """
 import logging
 import sys
+
 from pythonjsonlogger.json import JsonFormatter
+
 
 def setup_logging(service_name: str, level: str = "INFO") -> None:
     """

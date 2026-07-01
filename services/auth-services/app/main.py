@@ -1,20 +1,19 @@
-import time
 import logging
-from fastapi import FastAPI
+import time
 from contextlib import asynccontextmanager
 
-# --- JSON logging — MUST be configured first -------------------------------------
+from fastapi import FastAPI
 
+from app.api.routes.auth import router as auth_router
+from app.core.config import get_settings
 from app.core.logging.config import setup_logging
+from app.db.session import Base, engine
+from app.events.publisher import EventPublisher
+from app.metrics.prometheus import MetricsMiddleware, metrics_response
+
 setup_logging(service_name="auth-service")
 
 logger = logging.getLogger("auth-service")
-
-from app.core.config import get_settings
-from app.db.session import Base, engine
-from app.api.routes.auth import router as auth_router
-from app.events.publisher import EventPublisher
-from app.metrics.prometheus import MetricsMiddleware, metrics_response
 
 settings = get_settings()
 
@@ -49,7 +48,7 @@ async def lifespan(app: FastAPI):
     # Close the publisher
     if event_publisher:
         await event_publisher.close()
-logger.info("service_stopped")
+    logger.info("service_stopped")
 
 
 app = FastAPI(
@@ -73,7 +72,6 @@ async def health_check():
     Enhanced health check.
     Verifies the actual status of each dependency.
     """
-    import asyncio
     from sqlalchemy import text
 
     uptime_seconds = int(time.time() - _start_time)
@@ -88,12 +86,10 @@ async def health_check():
         logger.error("health_check_db_failed", extra={"error": str(exc)})
 
     # Check Redis (events)
-    redis_status = "ok" if event_publisher and event_publisher._client else "disabled"
-    if event_publisher and event_publisher._client:
-        try:
-            await event_publisher._client.ping()
-        except Exception as exc:
-            redis_status = f"error: {exc}"
+    if event_publisher and await event_publisher.check_connection():
+        redis_status = "ok"
+    else:
+        redis_status = "disabled" if event_publisher is None else "error"
 
     overall = "ok" if db_status == "ok" else "degraded"
 

@@ -1,14 +1,14 @@
 import time
+
+from fastapi import Response
 from prometheus_client import (
-    Counter,
-    Histogram,
-    Gauge,
-    generate_latest,
     CONTENT_TYPE_LATEST,
     REGISTRY,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
 )
-from fastapi import Request, Response
-
 
 HTTP_REQUESTS_TOTAL = Counter(
     "http_requests_total",

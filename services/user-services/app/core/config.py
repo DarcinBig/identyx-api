@@ -1,6 +1,8 @@
-from pydantic_settings import BaseSettings
-from pydantic import model_validator
 from functools import lru_cache
+
+from pydantic import model_validator
+from pydantic_settings import BaseSettings
+
 
 class Settings(BaseSettings):
     app_name: str = "Identyx User Service"
@@ -31,7 +33,7 @@ class Settings(BaseSettings):
     model_config = {"env_file": ".env"}
 
     @model_validator(mode="after")
-    def build_database_url(self) -> "Settings":
+    def build_database_url(self) -> Settings:
         """
         Constructs DATABASE_URL from the separated variables.
         Automatically called after field validation.
@@ -52,6 +54,6 @@ class Settings(BaseSettings):
             f"{self.github_branch}/{self.github_avatars_folder}/default.png"
         )
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     return Settings()   #type: ignore[call-arg]

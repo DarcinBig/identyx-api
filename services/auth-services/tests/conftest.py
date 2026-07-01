@@ -8,13 +8,12 @@ Shared fixtures for auth-service tests.
 """
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.db.session import Base, get_db
 from app.main import app
-from app.db.session import get_db
-from app.db.session import Base
 
 # --- In-memory database ------------------------------------------
 

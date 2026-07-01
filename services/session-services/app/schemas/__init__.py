@@ -1,12 +1,12 @@
 from app.schemas.session import (
     CreateSessionRequest,
-    ValidateSessionRequest,
+    MessageResponse,
     RevokeSessionRequest,
     RotateSessionRequest,
-    SessionResponse,
-    ValidateSessionResponse,
     SessionListResponse,
-    MessageResponse,
+    SessionResponse,
+    ValidateSessionRequest,
+    ValidateSessionResponse,
 )
 
 __all__ = [

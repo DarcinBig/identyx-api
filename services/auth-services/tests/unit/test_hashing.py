@@ -1,5 +1,6 @@
 """Unit tests for the Argon2id hashing module."""
-from app.security.hashing import hash_password, verify_password, needs_rehash
+from app.security.hashing import hash_password, needs_rehash, verify_password
+
 
 class TestHashing:
     def test_hash_password_returns_string(self):

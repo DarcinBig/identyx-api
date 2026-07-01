@@ -14,12 +14,12 @@ Public routes (no JWT required):
 All other routes require a valid JWT.
 """
 import logging
-import app.http as http_state
 
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+import app.http as http_state
 from app.core.config import get_settings
 
 settings = get_settings()

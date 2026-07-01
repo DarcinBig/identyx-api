@@ -1,11 +1,13 @@
 # The auth-service only stores credentials — never the profile.
 # The profile belongs to the user-service.
 import uuid
-from datetime import datetime, timezone
-from sqlalchemy import String, DateTime, Text
+from datetime import UTC, datetime
+
+from sqlalchemy import DateTime, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
+
 
 class UserCredential(Base):
     """
@@ -32,5 +34,5 @@ class UserCredential(Base):
     # Format: $argon2id$v=19$m=65536,t=2,p=2$<sel>$<hash>
     hashed_password: Mapped[str] = mapped_column(Text,nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)

@@ -1,7 +1,7 @@
 from app.cache.redis import (
-    init_redis,
-    close_redis,
     blacklist_token,
+    close_redis,
+    init_redis,
     is_blacklisted,
 )
 

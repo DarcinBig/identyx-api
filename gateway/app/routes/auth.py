@@ -1,10 +1,9 @@
 # This router receives all /auth/* requests and forwards them to auth-service
+import httpx
 from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse
-import httpx
 
 import app.http as http_state
-
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -93,7 +92,6 @@ async def logout(request: Request):
 
     POST /auth/logout -> auth-service
     """
-    import json as json_lib
 
     if http_state.client is None:
         return JSONResponse(
