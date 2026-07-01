@@ -16,7 +16,7 @@ services:
     build:
       context: ../gateway
       dockerfile: Dockerfile
-    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100", "--workers", "2"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100", "--workers", "2"]
     restart: always
     deploy:
       resources:
@@ -34,7 +34,7 @@ services:
     build:
       context: ../services/auth-services
       dockerfile: Dockerfile
-    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "2"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "2"]
     restart: always
     deploy:
       resources:
@@ -52,7 +52,7 @@ services:
     build:
       context: ../services/user-services
       dockerfile: Dockerfile
-    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2"]
     restart: always
     deploy:
       resources:
@@ -70,7 +70,7 @@ services:
     build:
       context: ../services/token-services
       dockerfile: Dockerfile
-    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8003", "--workers", "2"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8003", "--workers", "2"]
     restart: always
     deploy:
       resources:
@@ -88,7 +88,7 @@ services:
     build:
       context: ../services/session-services
       dockerfile: Dockerfile
-    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004", "--workers", "2"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004", "--workers", "2"]
     restart: always
     deploy:
       resources:
@@ -106,7 +106,7 @@ services:
     build:
       context: ../services/email-services
       dockerfile: Dockerfile
-    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8005", "--workers", "1"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8005", "--workers", "1"]
     restart: always
     deploy:
       resources:
