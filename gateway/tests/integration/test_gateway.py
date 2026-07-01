@@ -8,11 +8,18 @@ class TestPublicRoutes:
     @pytest.mark.asyncio
     async def test_health_returns_200(self):
         from app.main import app
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test"
-        ) as async_client:
-            response = await async_client.get("/health")
+
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch("app.http.client", mock_client):
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://test"
+            ) as async_client:
+                response = await async_client.get("/health")
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
 
@@ -43,11 +50,18 @@ class TestSecurityHeaders:
     @pytest.mark.asyncio
     async def test_health_response_has_security_headers(self):
         from app.main import app
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test"
-        ) as async_client:
-            response = await async_client.get("/health")
+
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch("app.http.client", mock_client):
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://test"
+            ) as async_client:
+                response = await async_client.get("/health")
         assert response.headers.get("x-content-type-options") == "nosniff"
         assert response.headers.get("x-frame-options") == "DENY"
         assert response.headers.get("x-xss-protection") == "1; mode=block"
