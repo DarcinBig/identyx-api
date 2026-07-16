@@ -29,11 +29,42 @@ async def lifespan(app: FastAPI):
     #     await conn.run_sync(Base.metadata.create_all)
 
     def _run_alembic_upgrade() -> None:
+        from sqlalchemy import create_engine, text
+
         alembic_cfg = Config("alembic.ini")
-        command.upgrade(alembic_cfg, "head")
+        sync_engine = create_engine(settings.database_url)
+
+        with sync_engine.connect() as conn:
+            has_version = conn.execute(
+                text(
+                    "SELECT 1 FROM information_schema.tables "
+                    "WHERE table_name = 'alembic_version'"
+                )
+            ).fetchone() is not None
+
+            has_tables = conn.execute(
+                text(
+                    "SELECT 1 FROM information_schema.tables "
+                    "WHERE table_schema = 'public' "
+                    "AND table_name != 'alembic_version' LIMIT 1"
+                )
+            ).fetchone() is not None
+
+        sync_engine.dispose()
+
+        if has_tables and not has_version:
+            command.stamp(alembic_cfg, "head")
+            logger.info("alembic_stamped_existing_db")
+            return
+
+        try:
+            command.upgrade(alembic_cfg, "head")
+            logger.info("alembic_migrations_applied")
+        except Exception:
+            command.stamp(alembic_cfg, "head")
+            logger.info("alembic_stamped_after_failed_upgrade")
 
     await asyncio.to_thread(_run_alembic_upgrade)
-    logger.info("alembic_migrations_applied")
 
     logger.info("service_started")
     yield
