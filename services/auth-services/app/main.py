@@ -39,7 +39,8 @@ async def lifespan(app: FastAPI):
         from sqlalchemy import create_engine, text
 
         alembic_cfg = Config("alembic.ini")
-        sync_engine = create_engine(settings.database_url)
+        sync_url = settings.database_url.replace("postgresql://", "postgresql+psycopg://")
+        sync_engine = create_engine(sync_url)
 
         with sync_engine.connect() as conn:
             has_version = conn.execute(
