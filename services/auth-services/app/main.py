@@ -1,13 +1,16 @@
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
 
+from alembic.config import Config
 from fastapi import FastAPI
 
+from alembic import command
 from app.api.routes.auth import router as auth_router
 from app.core.config import get_settings
 from app.core.logging.config import setup_logging
-from app.db.session import Base, engine
+from app.db.session import engine
 from app.events.publisher import EventPublisher
 from app.metrics.prometheus import MetricsMiddleware, metrics_response
 
@@ -29,8 +32,15 @@ async def lifespan(app: FastAPI):
 
     # Creates the user_credentials table if it doesn't exist
     # In production → will be replaced by Alembic
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # async with engine.begin() as conn:
+    #     await conn.run_sync(Base.metadata.create_all)
+
+    def _run_alembic_upgrade() -> None:
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+
+    await asyncio.to_thread(_run_alembic_upgrade)
+    logger.info("alembic_migrations_applied")
 
     # Publisher events
     event_publisher = EventPublisher(
