@@ -56,12 +56,8 @@ async def lifespan(app: FastAPI):
             logger.info("alembic_stamped_existing_db")
             return
 
-        try:
-            command.upgrade(alembic_cfg, "head")
-            logger.info("alembic_migrations_applied")
-        except Exception:
-            command.stamp(alembic_cfg, "head")
-            logger.info("alembic_stamped_after_failed_upgrade")
+        command.upgrade(alembic_cfg, "head")
+        logger.info("alembic_migrations_applied")
 
     await asyncio.to_thread(_run_alembic_upgrade)
 
