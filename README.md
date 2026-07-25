@@ -1,6 +1,6 @@
 # <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.png"><source media="(prefers-color-scheme: light)" srcset="docs/images/logo-light.png"><img alt="Identyx" src="docs/images/logo-light.png" width="32"></picture> Identyx
 
-> Authentication & Identity API — *v0.1.0*
+> Authentication & Identity API — *v0.1.5*
 
 [![CI](https://github.com/DarcinBig/identyx-api/actions/workflows/ci.yml/badge.svg)](https://github.com/DarcinBig/identyx-api/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -51,8 +51,9 @@ Identyx follows an **API Gateway** pattern with **6 microservices**, each owning
      │                │                │                │                │
      ▼                ▼                ▼                ▼                ▼
 ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
-│PostgreSQL│     │PostgreSQL│     │  Redis   │     │PostgreSQL│     │  Redis   │
-│ (auth)   │     │ (users)  │     │(blacklist│     │(sessions)│     │ (events) │
+│PostgreSQL│     │PostgreSQL│     │  Redis   │     │PostgreSQL│     │ Redpanda │
+│ (auth)   │     │ (users)  │     │(brute-   │     │(sessions)│     │ (events) │
+│          │     │          │     │ force)   │     │          │     │          │
 └──────────┘     └──────────┘     └──────────┘     └──────────┘     └──────────┘
                                                                     ┌──────────┐
                                                                     │   SMTP   │
@@ -78,7 +79,7 @@ Identyx follows an **API Gateway** pattern with **6 microservices**, each owning
 | **user-service** | CRUD user profiles, avatar upload | FastAPI + PostgreSQL |
 | **token-service** | JWT generation, verification, blacklisting | FastAPI + Redis |
 | **session-service** | Session lifecycle & validation | FastAPI + PostgreSQL |
-| **email-service** | Transactional emails via Redis event stream | FastAPI + Redis + SMTP |
+| **email-service** | Transactional emails via Kafka/Redpanda event stream | FastAPI + Kafka + SMTP |
 
 ---
 
@@ -97,7 +98,7 @@ Identyx follows an **API Gateway** pattern with **6 microservices**, each owning
 git clone https://github.com/DarcinBig/identyx-api.git
 cd identyx-api
 
-# 2. Start infrastructure (PostgreSQL, Redis, Prometheus)
+# 2. Start infrastructure (PostgreSQL, Redis, Redpanda, Prometheus)
 docker compose -f infra/docker-compose.yml up -d
 
 # 3. Run a service (example: auth-service)
@@ -116,7 +117,7 @@ docker compose -f infra/docker-compose.yml \
               up -d
 ```
 
-Images are pulled from `ghcr.io/darcinbig/`. Pin a version with `IMAGE_TAG=v0.1.0`.
+Images are pulled from `ghcr.io/darcinbig/`. Pin a version with `IMAGE_TAG=v0.1.5`.
 
 ### Environment variables
 
@@ -162,7 +163,7 @@ Full interactive docs at [`/docs`](http://localhost:8100/docs) (Swagger UI) or [
 | **Runtime** | Docker, Docker Compose |
 | **Databases** | PostgreSQL 16 (per service), Redis 7 |
 | **Auth** | JWT (HS256), Argon2id |
-| **Messaging** | Redis streams (email events) |
+| **Messaging** | Kafka/Redpanda (event-driven inter-service communication) |
 | **Monitoring** | Prometheus, structured JSON logs |
 | **CI / CD** | GitHub Actions, GHCR |
 | **Linting** | Ruff |

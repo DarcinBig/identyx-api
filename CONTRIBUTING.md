@@ -52,7 +52,7 @@ This project adheres to the [Contributor Covenant](https://www.contributor-coven
 ### Local environment
 
 ```bash
-# Start infrastructure
+# Start infrastructure (PostgreSQL, Redis, Redpanda, Prometheus)
 docker compose -f infra/docker-compose.yml up -d
 
 # Work on a specific service
@@ -189,7 +189,7 @@ identyx-api/
 │   ├── token-services/       # JWT lifecycle
 │   ├── session-services/     # Session management
 │   └── email-services/       # Email notifications
-├── infra/                    # Docker Compose, .env
+├── infra/                    # Docker Compose, Redpanda, .env
 ├── docs/                     # Images, diagrams
 └── .github/workflows/        # CI pipeline
 ```

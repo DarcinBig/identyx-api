@@ -20,6 +20,17 @@ class SendResetPasswordEmailRequest(BaseModel):
     username: str
     reset_token: str    # opaque token for the reset link
 
+class SendSecurityAlertEmailRequest(BaseModel):
+    """
+    Triggers the sending of a security alert email.
+    Called after a successful login following multiple failed attempts.
+    Warns the user and provides a direct link to change password.
+    """
+    email: EmailStr
+    username: str
+    failed_attempts: int
+    reset_token: str
+
 # --- Responses -----------------------------------------------
 
 class EmailSentResponse(BaseModel):

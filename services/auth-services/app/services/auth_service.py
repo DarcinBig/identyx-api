@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -7,8 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.events.types import (
     CHANNEL_AUTH_LOGIN,
+    CHANNEL_AUTH_SUSPICIOUS,
     CHANNEL_USER_REGISTERED,
     AuthLoginEvent,
+    AuthSuspiciousLoginEvent,
     UserRegisteredEvent,
 )
 from app.repositories.credential_repo import CredentialRepository
@@ -22,6 +25,8 @@ from app.schemas.auth import (
 from app.security.hashing import hash_password, needs_rehash, verify_password
 
 settings = get_settings()
+
+logger = logging.getLogger("auth-service")
 
 class AuthService:
     """
@@ -393,20 +398,15 @@ class AuthService:
             username: str,
     ) -> None:
         """
-        Publishes the user.registered event to Redis Pub/Sub.
-
-        Email-service listens to this channel and sends the verification email.
-        Fire & forget—never waits and never fails.
-
-        In future versions: RabbitMQ/Kafka will guarantee delivery
-        even if email-service is temporarily down.
+        Publishes user.registered to Kafka.
+        The email service consumes this topic and sends the verification email.
         """
         import base64
 
         from app.main import event_publisher
 
         if not event_publisher:
-            print("[auth_service] WARNING: event_publisher not initialized")
+            logger.warning("publish_skipped_no_publisher", extra={"topic": CHANNEL_USER_REGISTERED})
             return
 
         verification_token = base64.urlsafe_b64encode(
@@ -435,7 +435,7 @@ class AuthService:
 
         Flow:
             0. Check for brute-force lockout
-            1. Retrieve profile via user-servic
+            1. Retrieve profile via user-service
             2. Retrieve credential
             3. Verify password with Argon2id
                 → If failed: log attempt and raise 401
@@ -528,6 +528,19 @@ class AuthService:
             email=user_profile["email"],
         )
 
+        # Step 7b — Publish suspicious login event if there were prior failures
+        failed_count = await self._get_brute_force_count(
+            email=data.email,
+            ip=client_ip,
+        )
+        if failed_count > 0:
+            await self._publish_auth_suspicious(
+                user_id=user_id,
+                email=user_profile["email"],
+                username=user_profile["username"],
+                failed_attempts=failed_count,
+            )
+
         # Step 8 — Return to full AuthResponse
         return AuthResponse(
             access_token=tokens["access_token"],
@@ -549,21 +562,62 @@ class AuthService:
             user_id: str,
             email: str,
     ) -> None:
+        """Publishes auth.login to Kafka. Extensible for analytics in future versions."""
+        from app.main import event_publisher
+
+        if not event_publisher:
+            return
+
+        event = AuthLoginEvent(user_id=user_id, email=email)
+        await event_publisher.publish(CHANNEL_AUTH_LOGIN, event)
+
+    async def _get_brute_force_count(
+            self,
+            email: str,
+            ip: str,
+    ) -> int:
         """
-        Publishes the auth.login event to Redis Pub/Sub.
-        Extensible for analytics, audit logs, and anomaly detection in future versions.
+        Reads the current brute-force counter for the email key.
+        Returns the number of failed attempts before reset.
+        """
+        import redis.asyncio as aioredis
+
+        try:
+            client = aioredis.from_url(
+                settings.brute_force_redis_url,
+                encoding="utf-8",
+                decode_responses=True,
+            )
+            count = await client.get(f"brute:email:{email.lower()}")
+            await client.aclose()
+            return int(count) if count else 0
+        except Exception:
+            return 0
+
+    async def _publish_auth_suspicious(
+            self,
+            user_id: str,
+            email: str,
+            username: str,
+            failed_attempts: int,
+    ) -> None:
+        """
+        Publishes auth.suspicious to Kafka.
+        Email-service sends a security alert email.
+        Called from login() when a login succeeds after prior failures.
         """
         from app.main import event_publisher
 
         if not event_publisher:
             return
 
-        event = AuthLoginEvent(
+        event = AuthSuspiciousLoginEvent(
             user_id=user_id,
             email=email,
+            username=username,
+            failed_attempts=failed_attempts,
         )
-
-        await event_publisher.publish(CHANNEL_AUTH_LOGIN, event)
+        await event_publisher.publish(CHANNEL_AUTH_SUSPICIOUS, event)
 
     # --- Logout -----------------------------------------------------------------------------
 

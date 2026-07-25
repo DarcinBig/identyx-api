@@ -27,12 +27,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && groupadd -r appuser && useradd -r -g appuser appuser
 
 COPY --from=builder /app /app
+COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 
 RUN chown -R appuser:appuser /app
 
 USER appuser
 
 ENV PATH="/app/.venv/bin:$PATH"
+ENV UV_CACHE_DIR="/app/.cache/uv"
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8002/health || exit 1

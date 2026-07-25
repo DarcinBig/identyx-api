@@ -68,7 +68,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Identyx Session Service",
     description="Session and refresh tokens",
-    version="0.1.0",
+    version="0.1.5",
     lifespan=lifespan,
     redirect_slashes=False,
     docs_url="/docs" if settings.debug else None,
@@ -98,7 +98,7 @@ async def health_check():
     return {
         "service": "session-service",
         "status": overall,
-        "version": "0.1.0",
+        "version": "0.1.5",
         "uptime_seconds": uptime_seconds,
         "dependencies": {
             "database": db_status,
