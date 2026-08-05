@@ -3,7 +3,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.dependencies import get_current_user_id
-from app.schemas.user import AvatarResponse, UserCreate, UserResponse, UserUpdate
+from app.schemas.user import (
+    AvatarResponse,
+    CheckVerificationTokenRequest,
+    CheckVerificationTokenResponse,
+    ConfirmVerificationRequest,
+    ConfirmVerificationResponse,
+    StoreVerificationTokenRequest,
+    UserCreate,
+    UserResponse,
+    UserUpdate,
+)
 from app.services.user_service import UserService
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -155,3 +165,70 @@ async def get_user_by_email(
     GET /users/internal/by-email?email=user@example.com
     """
     return await service.get_user_by_email(email)
+
+# --- Internal endpoints — email verification (auth-service) ------------------------------
+
+@router.post(
+    "/internal/verification-token",
+    status_code=status.HTTP_201_CREATED,
+    summary="[Internal] Store verification token",
+    include_in_schema=False,
+    operation_id="store-verification-token",
+)
+async def store_verification_token(
+        data: StoreVerificationTokenRequest,
+        service: UserService = Depends(get_user_service)
+):
+    """
+    Stores an email verification token.
+    Called by auth-service after register.
+    """
+    await service.store_verification_token(
+        user_id=data.user_id,
+        raw_token=data.raw_token,
+    )
+    return {"message": "Verification token stored."}
+
+@router.post(
+    "/internal/verify-token",
+    response_model=CheckVerificationTokenResponse,
+    status_code=status.HTTP_200_OK,
+    summary="[Internal] Check verification token",
+    include_in_schema=False,
+    operation_id="check-verification-token",
+)
+async def check_verification_token(
+        data: CheckVerificationTokenRequest,
+        service: UserService = Depends(get_user_service)
+):
+    """
+    Checks the token in DB (expiration + is_used).
+    Called by auth-service during email verification.
+    """
+    result = await service.check_verification_token(
+        user_id=data.user_id,
+        raw_token=data.raw_token,
+    )
+    return CheckVerificationTokenResponse(**result)
+
+@router.post(
+    "/internal/confirm-verification",
+    response_model=ConfirmVerificationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="[Internal] Confirm email verification",
+    include_in_schema=False,
+    operation_id="confirm-verification",
+)
+async def confirm_verification(
+        data: ConfirmVerificationRequest,
+        service: UserService = Depends(get_user_service)
+):
+    """
+    Marks the token as used AND the email as verified.
+    Called by auth-service after successful HMAC verification.
+    """
+    result = await service.confirm_email_verification(
+        user_id=data.user_id,
+        raw_token=data.raw_token,
+    )
+    return ConfirmVerificationResponse(**result)

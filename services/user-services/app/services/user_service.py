@@ -17,6 +17,7 @@ class UserService:
         - Uploading/deleting/reverting avatars to default settings
     """
     def __init__(self, db: AsyncSession):
+        self.db = db
         self.repo = UserRepository(db)
         self.storage = StorageService()
 
@@ -207,3 +208,106 @@ class UserService:
             avatar_provider=user.avatar_provider,
             message="Avatar URL retrieved",
         )
+
+    # --- Email verification (called only by auth-service) -----------------------------------
+
+    async def store_verification_token(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> None:
+        """
+        Stores the email verification token in DB.
+        Called by auth-service after register (via internal endpoint).
+        Only the SHA-256 hash of the raw token is stored.
+        """
+        from app.repositories.email_verifications_repo import EmailVerificationRepository
+
+        repo = EmailVerificationRepository(self.db)
+        await repo.create(
+            user_id=user_id,
+            raw_token=raw_token,
+            expires_in_hours=24,
+        )
+
+    async def check_verification_token(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> dict:
+        """
+        Checks the token in DB:
+          - Does it exist?
+          - Does it belong to user_id?
+          - Not expired?
+          - Not already used?
+        """
+        from datetime import UTC, datetime
+
+        from app.repositories.email_verifications_repo import EmailVerificationRepository
+
+        repo = EmailVerificationRepository(self.db)
+        verification = await repo.get_by_token(raw_token)
+
+        if not verification:
+            return {"valid": False, "detail": "Verification token not found."}
+
+        if verification.user_id != user_id:
+            return {"valid": False, "detail": "Invalid verification token."}
+
+        if verification.is_used:
+            return {"valid": False, "detail": "Verification token already used."}
+
+        now = datetime.now(UTC)
+        expires_at = verification.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+
+        if expires_at < now:
+            return {"valid": False, "detail": "Verification token expired."}
+
+        return {"valid": True, "detail": ""}
+
+    async def confirm_email_verification(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> dict:
+        """
+        Atomic operation:
+          1. Mark the token as used
+          2. Mark the email as verified (is_verified=True)
+
+        Returns the updated profile.
+        """
+        from app.repositories.email_verifications_repo import EmailVerificationRepository
+
+        # Retrieve the token
+        repo = EmailVerificationRepository(self.db)
+        verification = await repo.get_by_token(raw_token)
+
+        if not verification:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Verification token not found.",
+            )
+
+        # Mark the token as used
+        await repo.mark_as_used(verification.id)
+
+        # Mark the email as verified
+        user = await self.repo.update(
+            user_id=user_id,
+            data=UserUpdate(is_verified=True),
+        )
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found.",
+            )
+
+        return {
+            "email": user.email,
+            "is_verified": user.is_verified,
+        }

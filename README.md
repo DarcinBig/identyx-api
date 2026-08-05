@@ -21,6 +21,7 @@
 | Feature | Status |
 |---|---|
 | **Email / Password auth** | ✅ Done |
+| **Email verification** | ✅ Done |
 | **JWT access + refresh tokens** | ✅ Done |
 | **Session management** | ✅ Done |
 | **User profile management** | ✅ Done |
@@ -75,8 +76,8 @@ Identyx follows an **API Gateway** pattern with **6 microservices**, each owning
 | Service | Role | Tech |
 |---|---|---|
 | **gateway** | Single entry point; rate limits, JWT validation, routing | FastAPI + Redis |
-| **auth-service** | Register / login, password hashing (Argon2id), brute-force protection | FastAPI + PostgreSQL + Redis |
-| **user-service** | CRUD user profiles, avatar upload | FastAPI + PostgreSQL |
+| **auth-service** | Register / login, password hashing (Argon2id), brute-force protection, HMAC email verification | FastAPI + PostgreSQL + Redis |
+| **user-service** | CRUD user profiles, avatar upload, email verification tokens | FastAPI + PostgreSQL |
 | **token-service** | JWT generation, verification, blacklisting | FastAPI + Redis |
 | **session-service** | Session lifecycle & validation | FastAPI + PostgreSQL |
 | **email-service** | Transactional emails via Kafka/Redpanda event stream | FastAPI + Kafka + SMTP |
@@ -128,6 +129,7 @@ Each service has a `.env` file at its root. Key variables:
 | `postgres_user` / `postgres_password` | Database credentials | *(required)* |
 | `jwt_secret_key` | HMAC secret for JWT | *(required)* |
 | `redis_url` | Redis connection string | `redis://localhost:6379` |
+| `app_base_url` | Base URL used in email links (verification/reset) | `http://localhost:8100` |
 
 See `infra/.env.example` for the full list.
 
@@ -139,8 +141,9 @@ The gateway exposes:
 
 | Endpoint | Method | Auth | Description |
 |---|---|---|---|
-| `/auth/register` | POST | — | Create account |
+| `/auth/register` | POST | — | Create account, sends verification email |
 | `/auth/login` | POST | — | Login, returns JWT pair |
+| `/auth/verify-email` | GET | — | Verify email via HMAC token from the email link |
 | `/users/me` | GET | JWT | Current user profile |
 | `/users/me` | PATCH | JWT | Update profile |
 | `/sessions` | GET | JWT | List active sessions |
@@ -184,6 +187,7 @@ We welcome contributions! Please see [`CONTRIBUTING.md`](CONTRIBUTING.md) for gu
 ## Roadmap
 
 - [x] Email / password authentication
+- [x] Email verification (HMAC token)
 - [x] JWT access & refresh token rotation
 - [x] Session management & revocation
 - [x] User profiles & avatar upload

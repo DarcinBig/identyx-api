@@ -43,9 +43,13 @@ class UserUpdate(BaseModel):
     """
     Partial update of a user.
     PATCH /users/{user_id}
+
+    is_verified is used internally by user-service
+    when confirming email verification.
     """
     email: EmailStr | None = None
     username: str | None = None
+    is_verified: bool | None = None
 
     @field_validator("username")
     @classmethod
@@ -62,8 +66,12 @@ class UserUpdate(BaseModel):
 
     @model_validator(mode="after")
     def at_least_one_field(self) -> UserUpdate:
-        if self.email is None and self.username is None:
-            raise ValueError("Username or email must be provided.")
+        if (
+            self.email is None
+            and self.username is None
+            and self.is_verified is None
+        ):
+            raise ValueError("At least one field must be provided.")
         return self
 
 class UserResponse(BaseModel):
@@ -120,3 +128,44 @@ class UserListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+# ─── Internal schemas — called only by auth-service ─────────
+
+class StoreVerificationTokenRequest(BaseModel):
+    """
+    Stores an email verification token in DB.
+    Called by auth-service after register.
+    user-service stores only the SHA-256 hash of the raw token.
+    """
+    user_id: str
+    raw_token: str
+
+
+class CheckVerificationTokenRequest(BaseModel):
+    """
+    Checks a token in DB (expiration + is_used).
+    Called by auth-service during email verification.
+    """
+    user_id: str
+    raw_token: str
+
+
+class CheckVerificationTokenResponse(BaseModel):
+    """Result of the DB verification of the token."""
+    valid: bool
+    detail: str = ""
+
+
+class ConfirmVerificationRequest(BaseModel):
+    """
+    Marks the token as used AND the email as verified.
+    Atomic call — both operations happen in a single request.
+    """
+    user_id: str
+    raw_token: str
+
+
+class ConfirmVerificationResponse(BaseModel):
+    """Result of the verification confirmation."""
+    email: str
+    is_verified: bool

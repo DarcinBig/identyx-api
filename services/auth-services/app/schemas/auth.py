@@ -72,6 +72,19 @@ class RefreshRequest(BaseModel):
     """
     refresh_token: str
 
+class VerifyEmailRequest(BaseModel):
+    """
+    Email verification token
+    GET /auth/verify-email?token=xxx
+    """
+    token: str
+
+class VerifyEmailResponse(BaseModel):
+    """Response following email verification."""
+    message: str
+    email: str
+    is_verified: bool
+
 class UserPublic(BaseModel):
     """Public profile returned in AuthResponse"""
     id: str

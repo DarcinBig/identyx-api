@@ -19,8 +19,8 @@ class Settings(BaseSettings):
     emails_from: str = "darcinbiganiro6@gmail.com"
     emails_from_name: str = "Identyx"
 
-    # Base URL for links in emails
-    app_base_url: str = "http://gateway:8100"
+    # Base URL for links in emails (must be reachable from the user's browser)
+    app_base_url: str = "http://localhost:8100"
 
     # Kafka / Redpanda — replaces Redis Pub/Sub
     kafka_bootstrap_servers: str = "redpanda:9092"

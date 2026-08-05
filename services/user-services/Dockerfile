@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 COPY pyproject.toml .
+ENV UV_HTTP_TIMEOUT=300
+ENV UV_HTTP_RETRIES=10
 RUN uv sync --no-dev
 
 COPY . .

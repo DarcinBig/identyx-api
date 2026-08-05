@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -9,6 +9,7 @@ from app.schemas.auth import (
     MessageResponse,
     RefreshRequest,
     RegisterRequest,
+    VerifyEmailResponse,
 )
 from app.services.auth_service import AuthService
 
@@ -117,3 +118,21 @@ async def refresh(
     and a new refresh token (rotation).
     """
     return await service.refresh(data.refresh_token)
+
+@router.get(
+    "/verify-email",
+    response_model=VerifyEmailResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Verify email address",
+    operation_id="verify-email",
+)
+async def verify_email(
+        token: str = Query(..., description="HMAC verification token from email link"),
+        service: AuthService = Depends(get_auth_service),
+):
+    """
+    Verifies the user's email address.
+    The token is extracted from the link in the verification email.
+    Format: GET /auth/verify-email?token=xxx
+    """
+    return await service.verify_email(raw_token=token)

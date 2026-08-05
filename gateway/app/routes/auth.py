@@ -154,3 +154,12 @@ async def logout(request: Request):
 async def refresh(request: Request):
     """POST /auth/refresh -> auth-service"""
     return await _proxy(request, "/auth/refresh")
+
+@router.get("/verify-email", operation_id="verify-email")
+async def verify_email(request: Request):
+    """
+    GET /auth/verify-email -> auth-service
+    Public route — no JWT required.
+    The token is passed as a query param: ?token=xxx
+    """
+    return await _proxy(request, "/auth/verify-email")

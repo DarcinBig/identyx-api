@@ -201,6 +201,7 @@ services:
 #      - "8005:8005"
     env_file: ../.env
     environment:
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8100}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
     depends_on:
