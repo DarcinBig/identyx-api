@@ -15,6 +15,7 @@ from app.core.config import get_settings
 from app.providers.smtp import send_email
 from app.schemas.email import (
     EmailSentResponse,
+    SendNewLoginEmailRequest,
     SendResetPasswordEmailRequest,
     SendSecurityAlertEmailRequest,
     SendVerificationEmailRequest,
@@ -78,6 +79,54 @@ class EmailService:
 
         return EmailSentResponse(
             message="Verification email sent." if sent else "Failed to send verification email.",
+            email=data.email,
+            sent=sent,
+        )
+
+    async def send_new_login_email(
+        self, data: SendNewLoginEmailRequest
+    ) -> EmailSentResponse:
+        """
+        Sends a new-login notification email.
+        Sent after every successful login so the user can
+        detect an unauthorized access from an unknown device.
+        """
+        secure_url = f"{settings.app_base_url}/auth/reset-password"
+
+        # Render HTML template
+        template = _jinja_env.get_template("new_login.html")
+        html_content = template.render(
+            username=data.username,
+            login_time=data.login_time,
+            client_ip=data.client_ip,
+            device_info=data.device_info,
+            location=data.location,
+            secure_url=secure_url,
+            year=datetime.now().year,
+        )
+
+        # Fallback raw text
+        text_content = (
+            f"Hi {data.username},\n\n"
+            f"A new login was detected on your account.\n\n"
+            f"Date & Time: {data.login_time}\n"
+            f"IP Address: {data.client_ip}\n"
+            f"Location: {data.location}\n"
+            f"Device: {data.device_info}\n\n"
+            f"If this was not you, secure your account immediately:\n"
+            f"{secure_url}\n\n"
+            f"— The Identyx team"
+        )
+
+        sent = await send_email(
+            to_email=data.email,
+            subject="New login to your Identyx account",
+            html_content=html_content,
+            text_content=text_content,
+        )
+
+        return EmailSentResponse(
+            message="New login email sent." if sent else "Failed to send new login email.",
             email=data.email,
             sent=sent,
         )

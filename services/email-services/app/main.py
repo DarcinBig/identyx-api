@@ -1,4 +1,4 @@
-"""email-service/app/main.py — V0.1.1"""
+"""email-service/app/main.py — V0.1.5"""
 
 import asyncio
 import logging
@@ -10,9 +10,17 @@ from fastapi import FastAPI
 from app.api.routes.emails import router as emails_router
 from app.core.config import get_settings
 from app.core.logging.config import setup_logging
-from app.events.handlers import handler_auth_suspicious, handler_user_registered
+from app.events.handlers import (
+    handler_auth_suspicious,
+    handler_new_login,
+    handler_user_registered,
+)
 from app.events.subscriber import EventSubscriber
-from app.events.types import CHANNEL_AUTH_SUSPICIOUS, CHANNEL_USER_REGISTERED
+from app.events.types import (
+    CHANNEL_AUTH_NEW_LOGIN,
+    CHANNEL_AUTH_SUSPICIOUS,
+    CHANNEL_USER_REGISTERED,
+)
 from app.metrics.prometheus import MetricsMiddleware, metrics_response
 
 setup_logging(service_name="email-service")
@@ -31,6 +39,7 @@ event_subscriber = EventSubscriber(
 # Register handlers
 event_subscriber.on(CHANNEL_USER_REGISTERED)(handler_user_registered)
 event_subscriber.on(CHANNEL_AUTH_SUSPICIOUS)(handler_auth_suspicious)
+event_subscriber.on(CHANNEL_AUTH_NEW_LOGIN)(handler_new_login)
 
 _listener_task = None
 
@@ -42,6 +51,11 @@ async def lifespan(app: FastAPI):
     logger.info("kafka_config", extra={
         "bootstrap_servers": settings.kafka_bootstrap_servers,
         "group_id": settings.kafka_consumer_group_id,
+        "topics": [
+            CHANNEL_USER_REGISTERED,
+            CHANNEL_AUTH_SUSPICIOUS,
+            CHANNEL_AUTH_NEW_LOGIN,
+        ],
     })
 
     try:
@@ -96,6 +110,11 @@ async def health_check():
         "dependencies": {
             "kafka": settings.kafka_bootstrap_servers,
             "event_subscriber": subscriber_status,
+            "topics": [
+                CHANNEL_USER_REGISTERED,
+                CHANNEL_AUTH_SUSPICIOUS,
+                CHANNEL_AUTH_NEW_LOGIN,
+            ],
         },
     }
 

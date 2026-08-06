@@ -5,13 +5,20 @@ Consumes Kafka topics and sends the corresponding emails.
 
 import logging
 import secrets
+from datetime import datetime
 
-from app.events.types import AuthSuspiciousLoginEvent, UserRegisteredEvent
+from app.events.types import (
+    AuthSuspiciousLoginEvent,
+    NewLoginEvent,
+    UserRegisteredEvent,
+)
 from app.schemas.email import (
+    SendNewLoginEmailRequest,
     SendSecurityAlertEmailRequest,
     SendVerificationEmailRequest,
 )
 from app.services.email_service import EmailService
+from app.services.ip_geolocation import resolve_location
 
 logger = logging.getLogger("email-service.handlers")
 
@@ -67,3 +74,39 @@ async def handler_auth_suspicious(data: str) -> None:
         )
     except Exception as exc:
         logger.error("handler_auth_suspicious_error", extra={"error": str(exc)})
+
+
+async def handler_new_login(data: str) -> None:
+    """
+    Handler for auth.new_login.
+    Sends a new-login notification email so the user can
+    detect an unauthorized access from an unknown device.
+    """
+    try:
+        event = NewLoginEvent.from_json(data)
+        logger.info("handler_new_login", extra={
+            "user_id": event.user_id,
+            "email": event.email,
+            "client_ip": event.client_ip,
+        })
+
+        # Resolve the login location ("Paris, France" style)
+        location = await resolve_location(event.client_ip)
+
+        # Format the login date/time
+        login_time = datetime.fromisoformat(event.occurred_at).strftime(
+            "%B %d, %Y at %H:%M UTC"
+        )
+
+        await _email_service.send_new_login_email(
+            SendNewLoginEmailRequest(
+                email=event.email,
+                username=event.username,
+                device_info=event.device_info,
+                client_ip=event.client_ip,
+                login_time=login_time,
+                location=location,
+            )
+        )
+    except Exception as exc:
+        logger.error("handler_new_login_error", extra={"error": str(exc)})

@@ -26,6 +26,8 @@
 | **Session management** | ✅ Done |
 | **User profile management** | ✅ Done |
 | **Email notifications** | ✅ Done |
+| **New-login email alerts (device + geolocation)** | ✅ Done |
+| **Multi-device session limit** | ✅ Done |
 | **Prometheus metrics & structured logging** | ✅ Done |
 | **OAuth 2.0 providers (Google, GitHub, …)** | 🔜 Planned |
 | **Passkeys (WebAuthn)** | 🔜 Planned |
@@ -58,12 +60,12 @@ Identyx follows an **API Gateway** pattern with **6 microservices**, each owning
 └──────────┘     └──────────┘     └──────────┘     └──────────┘     └──────────┘
                                                                     ┌──────────┐
                                                                     │   SMTP   │
-                                                                    │(Mailpit) │
+                                                                    │  (Brevo) │
                                                                     └──────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                               Gateway                                      │
-│  Rate limiting · JWT validation · Routing · Prometheus metrics · CORS     │
+│                               Gateway                                       │
+│  Rate limiting · JWT validation · Routing · Prometheus metrics · CORS       │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -79,8 +81,8 @@ Identyx follows an **API Gateway** pattern with **6 microservices**, each owning
 | **auth-service** | Register / login, password hashing (Argon2id), brute-force protection, HMAC email verification | FastAPI + PostgreSQL + Redis |
 | **user-service** | CRUD user profiles, avatar upload, email verification tokens | FastAPI + PostgreSQL |
 | **token-service** | JWT generation, verification, blacklisting | FastAPI + Redis |
-| **session-service** | Session lifecycle & validation | FastAPI + PostgreSQL |
-| **email-service** | Transactional emails via Kafka/Redpanda event stream | FastAPI + Kafka + SMTP |
+| **session-service** | Session lifecycle & validation, multi-device limit (oldest session revoked) | FastAPI + PostgreSQL |
+| **email-service** | Transactional emails via Kafka/Redpanda event stream (verification, suspicious login, new-login alerts with IP geolocation) | FastAPI + Kafka + SMTP |
 
 ---
 
@@ -142,13 +144,15 @@ The gateway exposes:
 | Endpoint | Method | Auth | Description |
 |---|---|---|---|
 | `/auth/register` | POST | — | Create account, sends verification email |
-| `/auth/login` | POST | — | Login, returns JWT pair |
+| `/auth/login` | POST | — | Login, returns JWT pair, sends new-login alert email |
+| `/auth/logout` | POST | JWT | Revoke session + blacklist access token |
+| `/auth/refresh` | POST | — | Rotate refresh token |
 | `/auth/verify-email` | GET | — | Verify email via HMAC token from the email link |
 | `/users/me` | GET | JWT | Current user profile |
 | `/users/me` | PATCH | JWT | Update profile |
 | `/sessions` | GET | JWT | List active sessions |
+| `/sessions/revoke-all` | DELETE | JWT | Revoke all sessions |
 | `/sessions/{id}` | DELETE | JWT | Revoke session |
-| `/tokens/refresh` | POST | — | Rotate refresh token |
 | `/tokens/revoke` | POST | JWT | Blacklist token |
 | `/health` | GET | — | Service health (incl. downstream probes) |
 | `/metrics` | GET | — | Prometheus scrape endpoint |
@@ -190,6 +194,8 @@ We welcome contributions! Please see [`CONTRIBUTING.md`](CONTRIBUTING.md) for gu
 - [x] Email verification (HMAC token)
 - [x] JWT access & refresh token rotation
 - [x] Session management & revocation
+- [x] Multi-device session limit (oldest session revoked)
+- [x] New-login email alerts with device + IP geolocation
 - [x] User profiles & avatar upload
 - [ ] OAuth 2.0 (Google, GitHub, Apple, etc.)
 - [ ] Passkeys (WebAuthn)

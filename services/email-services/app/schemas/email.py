@@ -31,6 +31,19 @@ class SendSecurityAlertEmailRequest(BaseModel):
     failed_attempts: int
     reset_token: str
 
+class SendNewLoginEmailRequest(BaseModel):
+    """
+    Triggers the sending of a new-login notification email.
+    Sent after every successful login to alert the user
+    of a new device connecting to their account (multi-device).
+    """
+    email: EmailStr
+    username: str
+    device_info: str   # User-Agent | IP
+    client_ip: str
+    login_time: str
+    location: str      # "Paris, France" — resolved from client_ip
+
 # --- Responses -----------------------------------------------
 
 class EmailSentResponse(BaseModel):

@@ -8,6 +8,7 @@ CHANNEL_USER_REGISTERED = "user.registered"
 CHANNEL_USER_DELETED = "user.deleted"
 CHANNEL_AUTH_LOGIN = "auth.login"
 CHANNEL_AUTH_SUSPICIOUS = "auth.suspicious"
+CHANNEL_AUTH_NEW_LOGIN = "auth.new_login"
 
 # --- Event payloads -------------------------------------------
 
@@ -97,4 +98,29 @@ class AuthSuspiciousLoginEvent:
 
     @classmethod
     def from_json(cls, data: str) -> AuthSuspiciousLoginEvent:
+        return cls(**json.loads(data))
+
+@dataclass
+class NewLoginEvent:
+    """
+    Published by the auth-service after every successful login.
+    Consumed by the email-service to notify the user of a
+    new device connecting to their account (multi-device).
+    """
+    user_id: str
+    email: str
+    username: str
+    device_info: str
+    client_ip: str
+    occurred_at: str = ""
+
+    def __post_init__(self):
+        if not self.occurred_at:
+            self.occurred_at = datetime.now(UTC).isoformat()
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self))
+
+    @classmethod
+    def from_json(cls, data: str) -> NewLoginEvent:
         return cls(**json.loads(data))

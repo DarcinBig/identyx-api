@@ -78,6 +78,24 @@ class SessionRepository:
         )
         return result.scalar_one()
 
+    async def get_oldest_active_by_user(self, user_id: str) -> Session | None:
+        """
+        Retrieve the oldest active session for a user.
+        Used to revoke the oldest session when the limit is reached.
+        """
+        now = datetime.now(UTC)
+        result = await self.db.execute(
+            select(Session)
+            .where(
+                Session.user_id == user_id,
+                Session.is_revoked == False,  # noqa: E712
+                Session.expires_at > now,
+            )
+            .order_by(Session.created_at.asc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def revoke_by_token_hash(self, token_hash: str) -> bool:
         """
         Revoke a session by its refresh token hash

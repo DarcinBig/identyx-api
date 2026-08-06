@@ -1,4 +1,5 @@
 import hashlib
+import logging
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
@@ -17,6 +18,7 @@ from app.schemas.session import (
 )
 
 settings = get_settings()
+logger = logging.getLogger("session-service")
 
 def _hash_token(raw_token: str) -> str:
     """SHA-256 hash of a raw refresh token."""
@@ -37,11 +39,38 @@ class SessionService:
 
     async def create_session(self, data: CreateSessionRequest) -> SessionResponse:
         """
-        Creates a new session after login or registration.
+        Creates a new session after login or registration,
+        enforcing the multi-device session limit.
+
+        Flow:
+            1. Count the user's active sessions
+            2. If count >= max_sessions_per_user, revoke the oldest session
+            3. Create the new session
+            4. Return SessionResponse
 
         The refresh token hash comes directly from token-service.
         The raw token is never stored.
         """
+        # Step 1 — Count the user's active sessions
+        active_count = await self.repo.count_active_by_user(data.user_id)
+        logger.info("session_create_check", extra={
+            "user_id": data.user_id,
+            "active_sessions": active_count,
+            "max_allowed": settings.max_sessions_per_user,
+        })
+
+        # Step 2 — If the limit is reached, revoke the oldest active session
+        if active_count >= settings.max_sessions_per_user:
+            oldest = await self.repo.get_oldest_active_by_user(data.user_id)
+            if oldest:
+                await self.repo.revoke_by_id(oldest.id)
+                logger.info("session_oldest_revoked", extra={
+                    "user_id": data.user_id,
+                    "revoked_session_id": oldest.id,
+                    "reason": "max_sessions_per_user_reached",
+                })
+
+        # Step 3 — Create the new session
         session = await self.repo.create(data)
         return SessionResponse.model_validate(session)
 

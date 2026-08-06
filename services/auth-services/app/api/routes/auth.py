@@ -27,6 +27,11 @@ def _get_client_ip(request: Request) -> str:
         return request.client.host
     return "unknown"
 
+def _get_device_info(request: Request, client_ip: str) -> str:
+    """Builds the device info string from the User-Agent + IP."""
+    user_agent = request.headers.get("User-Agent", "unknown")
+    return f"{user_agent} | {client_ip}"
+
 @router.post(
     "/register",
     response_model=AuthResponse,
@@ -35,6 +40,7 @@ def _get_client_ip(request: Request) -> str:
     operation_id="register",
 )
 async def register(
+    request: Request,
     data: RegisterRequest,
     service: AuthService = Depends(get_auth_service),
 ):
@@ -48,7 +54,9 @@ async def register(
 
     Password rules: minimum 8 characters, 1 uppercase letter, 1 number, 1 punctuation mark.
     """
-    return await service.register(data)
+    client_ip = _get_client_ip(request)
+    device_info = _get_device_info(request, client_ip)
+    return await service.register(data, device_info=device_info)
 
 @router.post(
     "/login",
@@ -69,10 +77,15 @@ async def login(
         - Updates the hash if needs_rehash (silently)
         - Returns the profile + tokens (real tokens in token-service)
 
-    Login with brute-force protection.
+    Login with brute-force protection + device tracking (User-Agent + IP).
     """
     client_ip = _get_client_ip(request)
-    return await service.login(data, client_ip=client_ip)
+    device_info = _get_device_info(request, client_ip)
+    return await service.login(
+        data,
+        device_info=device_info,
+        client_ip=client_ip,
+    )
 
 @router.post(
     "/logout",

@@ -18,10 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.events.types import (
     CHANNEL_AUTH_LOGIN,
+    CHANNEL_AUTH_NEW_LOGIN,
     CHANNEL_AUTH_SUSPICIOUS,
     CHANNEL_USER_REGISTERED,
     AuthLoginEvent,
     AuthSuspiciousLoginEvent,
+    NewLoginEvent,
     UserRegisteredEvent,
 )
 from app.repositories.credential_repo import CredentialRepository
@@ -540,6 +542,7 @@ class AuthService:
             5. Generate tokens
             6. Create session
             7. Publish auth.login event
+            7b. Publish auth.new_login (email notification with device info)
             8. If there were prior failures → publish auth.suspicious event
             9. Return AuthResponse
 
@@ -634,6 +637,15 @@ class AuthService:
             email=user_profile["email"],
         )
 
+        # Step 7b — Notify the user of a new login (multi-device)
+        await self._publish_new_login(
+            user_id=user_id,
+            email=user_profile["email"],
+            username=user_profile["username"],
+            device_info=device_info or "unknown",
+            client_ip=client_ip,
+        )
+
         # Step 8 — Publish a suspicious login event if the account was
         # close to the lockout threshold before this successful login
         if failed_attempts >= settings.brute_force_max_attempts - 1:
@@ -673,6 +685,32 @@ class AuthService:
 
         event = AuthLoginEvent(user_id=user_id, email=email)
         await event_publisher.publish(CHANNEL_AUTH_LOGIN, event)
+
+    async def _publish_new_login(
+            self,
+            user_id: str,
+            email: str,
+            username: str,
+            device_info: str,
+            client_ip: str,
+    ) -> None:
+        """
+        Publishes auth.new_login to Kafka.
+        Email-service sends a new-login notification email (multi-device).
+        """
+        from app.main import event_publisher
+
+        if not event_publisher:
+            return
+
+        event = NewLoginEvent(
+            user_id=user_id,
+            email=email,
+            username=username,
+            device_info=device_info,
+            client_ip=client_ip,
+        )
+        await event_publisher.publish(CHANNEL_AUTH_NEW_LOGIN, event)
 
     async def _get_failed_attempts_count(
             self,
