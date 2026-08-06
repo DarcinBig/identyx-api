@@ -6,6 +6,91 @@ import pytest
 from fastapi import HTTPException
 
 
+class TestAuthServiceResetPassword:
+
+    @pytest.mark.asyncio
+    async def test_reset_password_success(self):
+        """A valid one-time token must update the password and revoke all sessions."""
+        mock_db = AsyncMock()
+
+        from app.services.auth_service import AuthService
+
+        service = AuthService(mock_db)
+
+        service.repo = AsyncMock()
+        service.repo.update_password = AsyncMock(return_value=True)
+
+        service._check_password_reset_token = AsyncMock(
+            return_value={"valid": True, "detail": ""}
+        )
+        service._confirm_password_reset = AsyncMock(
+            return_value={"confirmed": True}
+        )
+        service._revoke_all_sessions = AsyncMock()
+
+        with patch(
+            "app.services.auth_service.verify_verification_token",
+            return_value=(True, "uuid-123"),
+        ):
+            result = await service.reset_password(
+                raw_token="uuid-123.1234.signature",
+                new_password="NewPassword@1",
+            )
+
+        assert result.message == "Password updated successfully."
+        service.repo.update_password.assert_awaited_once()
+        service._confirm_password_reset.assert_awaited_once()
+        service._revoke_all_sessions.assert_awaited_once_with("uuid-123")
+
+    @pytest.mark.asyncio
+    async def test_reset_password_invalid_signature(self):
+        """An invalid HMAC signature must raise a generic 400."""
+        mock_db = AsyncMock()
+
+        from app.services.auth_service import AuthService
+
+        service = AuthService(mock_db)
+
+        with patch(
+            "app.services.auth_service.verify_verification_token",
+            return_value=(False, None),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await service.reset_password(
+                    raw_token="forged.token.here",
+                    new_password="NewPassword@1",
+                )
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail == "Invalid or expired reset token."
+
+    @pytest.mark.asyncio
+    async def test_reset_password_db_token_invalid(self):
+        """A valid signature but an expired/used DB token must be rejected."""
+        mock_db = AsyncMock()
+
+        from app.services.auth_service import AuthService
+
+        service = AuthService(mock_db)
+
+        with patch(
+            "app.services.auth_service.verify_verification_token",
+            return_value=(True, "uuid-123"),
+        ):
+            service._check_password_reset_token = AsyncMock(
+                return_value={"valid": False, "detail": "Password reset token expired."}
+            )
+
+            with pytest.raises(HTTPException) as exc_info:
+                await service.reset_password(
+                    raw_token="uuid-123.1234.signature",
+                    new_password="NewPassword@1",
+                )
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail == "Invalid or expired reset token."
+
+
 class TestAuthServiceRegister:
 
     @pytest.mark.asyncio

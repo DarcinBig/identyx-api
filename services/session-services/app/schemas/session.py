@@ -25,6 +25,13 @@ class RevokeSessionRequest(BaseModel):
     """Revokes a session using its refresh token."""
     refresh_token: str      # raw token sent by the client
 
+class RevokeAllSessionsRequest(BaseModel):
+    """
+    Revokes all active sessions for a user.
+    Called internally by auth-service after a password reset.
+    """
+    user_id: str
+
 class RotateSessionRequest(BaseModel):
     old_refresh_token: str
     new_refresh_token_hash: str

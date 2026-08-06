@@ -182,3 +182,12 @@ async def verify_email(request: Request):
     The token is passed as a query param: ?token=xxx
     """
     return await _proxy(request, "/auth/verify-email")
+
+@router.post("/reset-password", operation_id="reset-password")
+async def reset_password(request: Request):
+    """
+    POST /auth/reset-password -> auth-service
+    Public route — no JWT required.
+    Body: { "token": "...", "new_password": "..." }
+    """
+    return await _proxy(request, "/auth/reset-password")

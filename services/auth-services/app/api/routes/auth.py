@@ -9,6 +9,7 @@ from app.schemas.auth import (
     MessageResponse,
     RefreshRequest,
     RegisterRequest,
+    ResetPasswordRequest,
     VerifyEmailResponse,
 )
 from app.services.auth_service import AuthService
@@ -149,3 +150,27 @@ async def verify_email(
     Format: GET /auth/verify-email?token=xxx
     """
     return await service.verify_email(raw_token=token)
+
+@router.post(
+    "/reset-password",
+    response_model=MessageResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Reset password with one-time token",
+    operation_id="reset-password",
+)
+async def reset_password(
+        data: ResetPasswordRequest,
+        service: AuthService = Depends(get_auth_service),
+):
+    """
+    Sets a new password using a one-time reset token.
+
+    The token comes from the security email link
+    (sent after a suspicious login). It is HMAC-signed,
+    single-use and expires after 1 hour.
+    All sessions are revoked after the change.
+    """
+    return await service.reset_password(
+        raw_token=data.token,
+        new_password=data.new_password,
+    )

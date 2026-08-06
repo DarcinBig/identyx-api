@@ -5,10 +5,15 @@ from app.db.session import get_db
 from app.dependencies import get_current_user_id
 from app.schemas.user import (
     AvatarResponse,
+    CheckPasswordResetTokenRequest,
+    CheckPasswordResetTokenResponse,
     CheckVerificationTokenRequest,
     CheckVerificationTokenResponse,
+    ConfirmPasswordResetRequest,
+    ConfirmPasswordResetResponse,
     ConfirmVerificationRequest,
     ConfirmVerificationResponse,
+    StorePasswordResetTokenRequest,
     StoreVerificationTokenRequest,
     UserCreate,
     UserResponse,
@@ -232,3 +237,70 @@ async def confirm_verification(
         raw_token=data.raw_token,
     )
     return ConfirmVerificationResponse(**result)
+
+# --- Internal endpoints — password reset (auth-service) ------------------------------
+
+@router.post(
+    "/internal/password-reset-token",
+    status_code=status.HTTP_201_CREATED,
+    summary="[Internal] Store password reset token",
+    include_in_schema=False,
+    operation_id="store-password-reset-token",
+)
+async def store_password_reset_token(
+        data: StorePasswordResetTokenRequest,
+        service: UserService = Depends(get_user_service)
+):
+    """
+    Stores a password reset token.
+    Called by auth-service when a suspicious login is detected.
+    """
+    await service.store_password_reset_token(
+        user_id=data.user_id,
+        raw_token=data.raw_token,
+    )
+    return {"message": "Password reset token stored."}
+
+@router.post(
+    "/internal/check-password-reset-token",
+    response_model=CheckPasswordResetTokenResponse,
+    status_code=status.HTTP_200_OK,
+    summary="[Internal] Check password reset token",
+    include_in_schema=False,
+    operation_id="check-password-reset-token",
+)
+async def check_password_reset_token(
+        data: CheckPasswordResetTokenRequest,
+        service: UserService = Depends(get_user_service)
+):
+    """
+    Checks the password reset token in DB (expiration + is_used).
+    Called by auth-service during password reset.
+    """
+    result = await service.check_password_reset_token(
+        user_id=data.user_id,
+        raw_token=data.raw_token,
+    )
+    return CheckPasswordResetTokenResponse(**result)
+
+@router.post(
+    "/internal/confirm-password-reset",
+    response_model=ConfirmPasswordResetResponse,
+    status_code=status.HTTP_200_OK,
+    summary="[Internal] Confirm password reset",
+    include_in_schema=False,
+    operation_id="confirm-password-reset",
+)
+async def confirm_password_reset(
+        data: ConfirmPasswordResetRequest,
+        service: UserService = Depends(get_user_service)
+):
+    """
+    Marks the password reset token as used.
+    Called by auth-service after the password has been changed.
+    """
+    result = await service.confirm_password_reset(
+        user_id=data.user_id,
+        raw_token=data.raw_token,
+    )
+    return ConfirmPasswordResetResponse(**result)

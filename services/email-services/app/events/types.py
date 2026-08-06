@@ -79,10 +79,20 @@ class AuthLoginEvent:
 
 @dataclass
 class AuthSuspiciousLoginEvent:
+    """
+    Published by the auth-service after a successful login
+    following several failed attempts.
+    Consumed by email-service to send a security email
+    containing a password reset link.
+
+    reset_token: HMAC-signed one-time token used to build
+                 the password reset link in the email.
+    """
     user_id: str
     email: str
     username: str
     failed_attempts: int
+    reset_token: str
     occurred_at: str = ""
 
     def __post_init__(self):

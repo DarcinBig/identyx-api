@@ -255,6 +255,95 @@ class AuthService:
                     detail="Failed to confirm email verification.",
                 )
 
+    async def _store_password_reset_token(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> None:
+        """
+        Stores the password reset token in user-service.
+        user-service stores only the SHA-256 hash of the raw token.
+        """
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                await client.post(
+                    f"{settings.user_service_url}/users/internal/password-reset-token",
+                    json={
+                        "user_id": user_id,
+                        "raw_token": raw_token,
+                    },
+                )
+            except Exception as exc:
+                logger.warning("store_password_reset_token_failed", extra={
+                    "error": str(exc)
+                })
+
+    async def _check_password_reset_token(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> dict:
+        """
+        Checks the password reset token in DB via user-service
+        (expiration + is_used).
+        Returns {valid: bool, detail: str}.
+        """
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                response = await client.post(
+                    f"{settings.user_service_url}/users/internal/check-password-reset-token",
+                    json={
+                        "user_id": user_id,
+                        "raw_token": raw_token,
+                    },
+                )
+                return response.json()
+            except Exception as exc:
+                logger.warning("check_password_reset_token_failed", extra={
+                    "error": str(exc)
+                })
+                return {"valid": False, "detail": "Reset service unavailable."}
+
+    async def _confirm_password_reset(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> dict:
+        """
+        Marks the password reset token as used in user-service.
+        Called after the password has been changed.
+        """
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                response = await client.post(
+                    f"{settings.user_service_url}/users/internal/confirm-password-reset",
+                    json={
+                        "user_id": user_id,
+                        "raw_token": raw_token,
+                    },
+                )
+                return response.json()
+            except Exception as exc:
+                logger.warning("confirm_password_reset_failed", extra={
+                    "error": str(exc)
+                })
+                return {"confirmed": False}
+
+    async def _generate_and_store_reset_token(self, user_id: str) -> str:
+        """
+        Generates an HMAC-signed one-time reset token and stores its
+        SHA-256 hash in user-service.
+
+        The raw token is returned so it can be embedded in the security
+        email link. It can only be used once and expires after 1 hour.
+        """
+        raw_token = generate_verification_token(user_id)
+        await self._store_password_reset_token(
+            user_id=user_id,
+            raw_token=raw_token,
+        )
+        return raw_token
+
     # --- Internal calls to token service -----------------------------------------------------
 
     async def _generate_tokens(self, user_id: str) -> dict:
@@ -360,6 +449,20 @@ class AuthService:
                 )
             except Exception as exc:
                 logger.warning("revoke_session_failed", extra={"error": str(exc)})
+
+    async def _revoke_all_sessions(self, user_id: str) -> None:
+        """
+        Revokes all active sessions for a user in session-service.
+        Called after a password reset so every device is disconnected.
+        """
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                await client.post(
+                    f"{settings.session_service_url}/sessions/internal/revoke-all",
+                    json={"user_id": user_id},
+                )
+            except Exception as exc:
+                logger.warning("revoke_all_sessions_failed", extra={"error": str(exc)})
 
     async def _validate_session(
             self,
@@ -647,13 +750,17 @@ class AuthService:
         )
 
         # Step 8 — Publish a suspicious login event if the account was
-        # close to the lockout threshold before this successful login
+        # close to the lockout threshold before this successful login.
+        # The event carries an HMAC-signed reset token so the security
+        # email can offer a direct, one-time password change link.
         if failed_attempts >= settings.brute_force_max_attempts - 1:
+            reset_token = await self._generate_and_store_reset_token(user_id)
             await self._publish_auth_suspicious(
                 user_id=user_id,
                 email=user_profile["email"],
                 username=user_profile["username"],
                 failed_attempts=failed_attempts,
+                reset_token=reset_token,
             )
 
         # Step 9 — Return to full AuthResponse
@@ -723,19 +830,13 @@ class AuthService:
         Called from login() BEFORE reset to decide if auth.suspicious
         should be published.
         """
-        import redis.asyncio as aioredis
+        from app.security.brute_force import get_failed_attempts_count
 
-        try:
-            client = aioredis.from_url(
-                settings.brute_force_redis_url,
-                encoding="utf-8",
-                decode_responses=True,
-            )
-            count = await client.get(f"brute:email:{email.lower()}")
-            await client.aclose()
-            return int(count) if count else 0
-        except Exception:
-            return 0
+        return await get_failed_attempts_count(
+            email=email,
+            ip=ip,
+            redis_url=settings.brute_force_redis_url,
+        )
 
     async def _publish_auth_suspicious(
             self,
@@ -743,11 +844,14 @@ class AuthService:
             email: str,
             username: str,
             failed_attempts: int,
+            reset_token: str,
     ) -> None:
         """
         Publishes auth.suspicious to Kafka.
         Email-service sends a security alert email.
         Called from login() when a login succeeds after prior failures.
+        The reset_token is the HMAC-signed one-time token used to build
+        the password reset link inside the email.
         """
         from app.main import event_publisher
 
@@ -759,6 +863,7 @@ class AuthService:
             email=email,
             username=username,
             failed_attempts=failed_attempts,
+            reset_token=reset_token,
         )
         await event_publisher.publish(CHANNEL_AUTH_SUSPICIOUS, event)
 
@@ -896,3 +1001,69 @@ class AuthService:
             email=result.get("email", ""),
             is_verified=True,
         )
+
+    # --- Reset password --------------------------------------------------------------------
+
+    async def reset_password(self, raw_token: str, new_password: str) -> MessageResponse:
+        """
+        Sets a new password using a one-time HMAC-signed reset token.
+
+        Flow:
+            1. Verify the HMAC signature of the token → user_id
+            2. Verify the token in user-service (expiration + is_used)
+            3. Hash the new password with Argon2id
+            4. Update the credential in auth-service's database
+            5. Mark the token as used in user-service
+            6. Revoke all sessions (all devices are disconnected)
+
+        Security notes:
+            - The token is signed (HMAC) and stored hashed (SHA-256) in DB
+            - It is single-use and expires after 1 hour
+            - Errors are generic to avoid revealing why a token is rejected
+            - A successful reset revokes every session for the user
+        """
+        # Step 1 — Verify the HMAC signature
+        is_valid, user_id = verify_verification_token(raw_token)
+        if not is_valid or not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired reset token.",
+            )
+
+        # Step 2 — Verify the token in DB via user-service
+        check_result = await self._check_password_reset_token(
+            user_id=user_id,
+            raw_token=raw_token,
+        )
+        if not check_result.get("valid"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired reset token.",
+            )
+
+        # Step 3 — Hash the new password
+        hashed = hash_password(new_password)
+
+        # Step 4 — Update the credential
+        updated = await self.repo.update_password(
+            user_id=user_id,
+            new_hashed_password=hashed,
+        )
+        if not updated:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found.",
+            )
+
+        # Step 5 — Mark the token as used (single-use)
+        await self._confirm_password_reset(
+            user_id=user_id,
+            raw_token=raw_token,
+        )
+
+        # Step 6 — Revoke all sessions (disconnect every device)
+        await self._revoke_all_sessions(user_id)
+
+        logger.info("password_reset_completed", extra={"user_id": user_id})
+
+        return MessageResponse(message="Password updated successfully.")

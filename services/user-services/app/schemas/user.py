@@ -169,3 +169,42 @@ class ConfirmVerificationResponse(BaseModel):
     """Result of the verification confirmation."""
     email: str
     is_verified: bool
+
+class StorePasswordResetTokenRequest(BaseModel):
+    """
+    Stores a password reset token in DB.
+    Called by auth-service when a suspicious login is detected.
+    user-service stores only the SHA-256 hash of the raw token.
+    """
+    user_id: str
+    raw_token: str
+
+
+class CheckPasswordResetTokenRequest(BaseModel):
+    """
+    Checks a password reset token in DB (expiration + is_used).
+    Called by auth-service during password reset.
+    """
+    user_id: str
+    raw_token: str
+
+
+class CheckPasswordResetTokenResponse(BaseModel):
+    """Result of the DB verification of a password reset token."""
+    valid: bool
+    detail: str = ""
+
+
+class ConfirmPasswordResetRequest(BaseModel):
+    """
+    Marks the password reset token as used.
+    Called by auth-service after the password has been changed.
+    """
+    user_id: str
+    raw_token: str
+
+
+class ConfirmPasswordResetResponse(BaseModel):
+    """Result of the password reset confirmation."""
+    email: str
+    confirmed: bool

@@ -311,3 +311,98 @@ class UserService:
             "email": user.email,
             "is_verified": user.is_verified,
         }
+
+    # --- Password reset tokens (called only by auth-service) ------------------------------
+
+    async def store_password_reset_token(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> None:
+        """
+        Stores a password reset token in DB.
+        Called by auth-service when a suspicious login is detected
+        (via internal endpoint).
+        Only the SHA-256 hash of the raw token is stored.
+        """
+        from app.repositories.password_reset_repo import PasswordResetRepository
+
+        repo = PasswordResetRepository(self.db)
+        await repo.create(
+            user_id=user_id,
+            raw_token=raw_token,
+            expires_in_minutes=60,
+        )
+
+    async def check_password_reset_token(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> dict:
+        """
+        Checks the password reset token in DB:
+          - Does it exist?
+          - Does it belong to user_id?
+          - Not expired?
+          - Not already used?
+        """
+        from datetime import UTC, datetime
+
+        from app.repositories.password_reset_repo import PasswordResetRepository
+
+        repo = PasswordResetRepository(self.db)
+        reset = await repo.get_by_token(raw_token)
+
+        if not reset:
+            return {"valid": False, "detail": "Password reset token not found."}
+
+        if reset.user_id != user_id:
+            return {"valid": False, "detail": "Invalid password reset token."}
+
+        if reset.is_used:
+            return {"valid": False, "detail": "Password reset token already used."}
+
+        now = datetime.now(UTC)
+        expires_at = reset.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+
+        if expires_at < now:
+            return {"valid": False, "detail": "Password reset token expired."}
+
+        return {"valid": True, "detail": ""}
+
+    async def confirm_password_reset(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> dict:
+        """
+        Marks the password reset token as used.
+        Called by auth-service after the password has been changed.
+        Returns the updated profile.
+        """
+        from app.repositories.password_reset_repo import PasswordResetRepository
+
+        repo = PasswordResetRepository(self.db)
+        reset = await repo.get_by_token(raw_token)
+
+        if not reset:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password reset token not found.",
+            )
+
+        await repo.mark_as_used(reset.id)
+
+        user = await self.repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found.",
+            )
+
+        return {
+            "email": user.email,
+            "confirmed": True,
+        }
