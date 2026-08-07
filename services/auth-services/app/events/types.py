@@ -2,11 +2,13 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 
-# --- Channel names --------------------------------------------
+# --- Kafka topic names ----------------------------------------
 
 CHANNEL_USER_REGISTERED = "user.registered"
 CHANNEL_USER_DELETED = "user.deleted"
 CHANNEL_AUTH_LOGIN = "auth.login"
+CHANNEL_AUTH_SUSPICIOUS = "auth.suspicious"
+CHANNEL_AUTH_NEW_LOGIN = "auth.new_login"
 
 # --- Event payloads -------------------------------------------
 
@@ -72,4 +74,58 @@ class AuthLoginEvent:
 
     @classmethod
     def from_json(cls, data: str) -> AuthLoginEvent:
+        return cls(**json.loads(data))
+
+@dataclass
+class AuthSuspiciousLoginEvent:
+    """
+    Published by auth-service after a successful login
+    following several failed attempts.
+    Consumed by email-service to send a security email
+    containing a password reset link.
+
+    reset_token: HMAC-signed one-time token used to build
+                 the password reset link in the email.
+    """
+    user_id: str
+    email: str
+    username: str
+    failed_attempts: int
+    reset_token: str
+    occurred_at: str = ""
+
+    def __post_init__(self):
+        if not self.occurred_at:
+            self.occurred_at = datetime.now(UTC).isoformat()
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self))
+
+    @classmethod
+    def from_json(cls, data: str) -> AuthSuspiciousLoginEvent:
+        return cls(**json.loads(data))
+
+@dataclass
+class NewLoginEvent:
+    """
+    Published by the auth-service after every successful login.
+    Consumed by the email-service to notify the user of a
+    new device connecting to their account (multi-device).
+    """
+    user_id: str
+    email: str
+    username: str
+    device_info: str
+    client_ip: str
+    occurred_at: str = ""
+
+    def __post_init__(self):
+        if not self.occurred_at:
+            self.occurred_at = datetime.now(UTC).isoformat()
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self))
+
+    @classmethod
+    def from_json(cls, data: str) -> NewLoginEvent:
         return cls(**json.loads(data))

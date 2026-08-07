@@ -12,26 +12,25 @@ class Settings(BaseSettings):
     # PostgreSQL
     postgres_user: str
     postgres_password: str
-    postgres_host: str = "redis"
+    postgres_host: str = "postgres-auth"
     postgres_port: int = 5432
     postgres_db: str = "identyx_auth"
-
     database_url: str = ""
 
-    # Redis
-    # redis_url: str = "redis://localhost:6379"
-
-    # Redis events
+    # Redis — used only for brute-force (DB 2)
     redis_url: str | None = None
     redis_host: str = "redis"
     redis_port: int = 6379
     redis_password: str = ""
-    events_redis_db: int = 1
 
     # Anti-brute-force
     brute_force_redis_url: str = "redis://redis:6379/2"
     brute_force_max_attempts: int = 5
     brute_force_lockout_minutes: int = 15
+
+    # Kafka / Redpanda — replaces Redis Pub/Sub
+    kafka_bootstrap_servers: str = "redpanda:9092"
+    kafka_client_id: str = "auth-service"
 
     # JWT
     jwt_secret_key: str = ""
@@ -79,20 +78,6 @@ class Settings(BaseSettings):
     #         f":{self.redis_port}"
     #         f"/{self.events_redis_db}"
     #     )
-
-    def get_events_redis_url(self) -> str:
-        if self.redis_url:
-            return self.redis_url
-        if self.redis_password:
-            return (
-                f"redis://:{self.redis_password}"
-                f"@{self.redis_host}:{self.redis_port}"
-                f"/{self.events_redis_db}"
-            )
-        return (
-            f"redis://{self.redis_host}:{self.redis_port}"
-            f"/{self.events_redis_db}"
-        )
 
 @lru_cache
 def get_settings() -> Settings:

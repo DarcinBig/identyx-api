@@ -1,10 +1,11 @@
 [project]
 name = "auth-services"
-version = "0.1.0"
+version = "0.1.5"
 description = "Identyx — Authentication Service"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "aiokafka>=0.14.0",
     "alembic>=1.18.5",
     "asyncpg>=0.31.0",
     "fastapi[standard]==0.139.0",

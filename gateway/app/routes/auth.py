@@ -42,6 +42,16 @@ async def _proxy(request: Request, path: str) -> JSONResponse:
         if key.lower() not in ("host", "content-length")
     }
 
+    # Ensure the real client IP reaches the target service
+    # Used by auth-service for device_info and brute-force tracking
+    client_ip = request.client.host if request.client else "unknown"
+    existing_forwarded_for = request.headers.get("x-forwarded-for", "")
+    headers["x-forwarded-for"] = (
+        f"{existing_forwarded_for}, {client_ip}"
+        if existing_forwarded_for
+        else client_ip
+    )
+
     try:
         response = await http_state.client.request(
             method=request.method,
@@ -108,6 +118,15 @@ async def logout(request: Request):
         if key.lower() not in ("host", "content-length")
     }
 
+    # Ensure the real client IP reaches the target service
+    client_ip = request.client.host if request.client else "unknown"
+    existing_forwarded_for = request.headers.get("x-forwarded-for", "")
+    headers["x-forwarded-for"] = (
+        f"{existing_forwarded_for}, {client_ip}"
+        if existing_forwarded_for
+        else client_ip
+    )
+
     # try:
     #     body = json_lib.loads(body_bytes) if body_bytes else {}
     # except Exception:
@@ -154,3 +173,21 @@ async def logout(request: Request):
 async def refresh(request: Request):
     """POST /auth/refresh -> auth-service"""
     return await _proxy(request, "/auth/refresh")
+
+@router.get("/verify-email", operation_id="verify-email")
+async def verify_email(request: Request):
+    """
+    GET /auth/verify-email -> auth-service
+    Public route — no JWT required.
+    The token is passed as a query param: ?token=xxx
+    """
+    return await _proxy(request, "/auth/verify-email")
+
+@router.post("/reset-password", operation_id="reset-password")
+async def reset_password(request: Request):
+    """
+    POST /auth/reset-password -> auth-service
+    Public route — no JWT required.
+    Body: { "token": "...", "new_password": "..." }
+    """
+    return await _proxy(request, "/auth/reset-password")

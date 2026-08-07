@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -9,6 +9,8 @@ from app.schemas.auth import (
     MessageResponse,
     RefreshRequest,
     RegisterRequest,
+    ResetPasswordRequest,
+    VerifyEmailResponse,
 )
 from app.services.auth_service import AuthService
 
@@ -26,6 +28,11 @@ def _get_client_ip(request: Request) -> str:
         return request.client.host
     return "unknown"
 
+def _get_device_info(request: Request, client_ip: str) -> str:
+    """Builds the device info string from the User-Agent + IP."""
+    user_agent = request.headers.get("User-Agent", "unknown")
+    return f"{user_agent} | {client_ip}"
+
 @router.post(
     "/register",
     response_model=AuthResponse,
@@ -34,6 +41,7 @@ def _get_client_ip(request: Request) -> str:
     operation_id="register",
 )
 async def register(
+    request: Request,
     data: RegisterRequest,
     service: AuthService = Depends(get_auth_service),
 ):
@@ -47,7 +55,9 @@ async def register(
 
     Password rules: minimum 8 characters, 1 uppercase letter, 1 number, 1 punctuation mark.
     """
-    return await service.register(data)
+    client_ip = _get_client_ip(request)
+    device_info = _get_device_info(request, client_ip)
+    return await service.register(data, device_info=device_info)
 
 @router.post(
     "/login",
@@ -68,10 +78,15 @@ async def login(
         - Updates the hash if needs_rehash (silently)
         - Returns the profile + tokens (real tokens in token-service)
 
-    Login with brute-force protection.
+    Login with brute-force protection + device tracking (User-Agent + IP).
     """
     client_ip = _get_client_ip(request)
-    return await service.login(data, client_ip=client_ip)
+    device_info = _get_device_info(request, client_ip)
+    return await service.login(
+        data,
+        device_info=device_info,
+        client_ip=client_ip,
+    )
 
 @router.post(
     "/logout",
@@ -117,3 +132,45 @@ async def refresh(
     and a new refresh token (rotation).
     """
     return await service.refresh(data.refresh_token)
+
+@router.get(
+    "/verify-email",
+    response_model=VerifyEmailResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Verify email address",
+    operation_id="verify-email",
+)
+async def verify_email(
+        token: str = Query(..., description="HMAC verification token from email link"),
+        service: AuthService = Depends(get_auth_service),
+):
+    """
+    Verifies the user's email address.
+    The token is extracted from the link in the verification email.
+    Format: GET /auth/verify-email?token=xxx
+    """
+    return await service.verify_email(raw_token=token)
+
+@router.post(
+    "/reset-password",
+    response_model=MessageResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Reset password with one-time token",
+    operation_id="reset-password",
+)
+async def reset_password(
+        data: ResetPasswordRequest,
+        service: AuthService = Depends(get_auth_service),
+):
+    """
+    Sets a new password using a one-time reset token.
+
+    The token comes from the security email link
+    (sent after a suspicious login). It is HMAC-signed,
+    single-use and expires after 1 hour.
+    All sessions are revoked after the change.
+    """
+    return await service.reset_password(
+        raw_token=data.token,
+        new_password=data.new_password,
+    )

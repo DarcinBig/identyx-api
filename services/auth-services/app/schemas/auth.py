@@ -72,6 +72,44 @@ class RefreshRequest(BaseModel):
     """
     refresh_token: str
 
+class VerifyEmailRequest(BaseModel):
+    """
+    Email verification token
+    GET /auth/verify-email?token=xxx
+    """
+    token: str
+
+class ResetPasswordRequest(BaseModel):
+    """
+    Sets a new password using a one-time reset token.
+    POST /auth/reset-password
+
+    token: HMAC-signed token received in the security email link.
+    """
+    token: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password(cls, validator: str) -> str:
+        if (
+            len(validator) < 8
+            or not any(char.isupper() for char in validator)
+            or not any(char.isdigit() for char in validator)
+            or not any(char in string.punctuation for char in validator)
+        ):
+            raise ValueError(
+                "Password must be at least 8 characters,"
+                "with 1 uppercase, 1 digit and 1 punctuation."
+            )
+        return validator
+
+class VerifyEmailResponse(BaseModel):
+    """Response following email verification."""
+    message: str
+    email: str
+    is_verified: bool
+
 class UserPublic(BaseModel):
     """Public profile returned in AuthResponse"""
     id: str

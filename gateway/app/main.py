@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
 _app = FastAPI(
     title="Identyx API Gateway",
     description="Single entry point for all Identyx services",
-    version="0.1.0",
+    version="0.1.5",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -57,21 +57,25 @@ _app = FastAPI(
 )
 
 # --- CORS --------------------------------------------------
+
 cors_config = get_cors_config()
 _app.add_middleware(CORSMiddleware, **cors_config)
 
 # --- Middlewares -------------------------------------------
+
 _app.add_middleware(LoggingMiddleware)
 _app.add_middleware(ErrorHandlingMiddleware)
 _app.add_middleware(JWTAuthMiddleware)
 
 # --- Routers -----------------------------------------------
+
 _app.include_router(auth_router)
 _app.include_router(users_router)
 _app.include_router(sessions_router)
 _app.include_router(tokens_router)
 
 # --- Health check ------------------------------------------
+
 @_app.get("/health", tags=["observability"], operation_id="check")
 async def health_check():
     import asyncio
@@ -107,7 +111,7 @@ async def health_check():
     return {
         "service": "gateway",
         "status": overall,
-        "version": "0.1.0",
+        "version": "0.1.5",
         "uptime_seconds": uptime_seconds,
         "services": statuses,
     }

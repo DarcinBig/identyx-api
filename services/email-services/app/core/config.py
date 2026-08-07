@@ -8,55 +8,27 @@ class Settings(BaseSettings):
     debug: bool = False
     environment: str = "development"
 
-    # SMTP config
+    # SMTP
     smtp_host: str = "smtp-relay.brevo.com"
     smtp_port: int = 587
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_use_tls: bool = True
 
-    # emails_from: str = "noreply@identyx.io"
+    # Sender
     emails_from: str = "darcinbiganiro6@gmail.com"
     emails_from_name: str = "Identyx"
 
-    # Base URL for links in emails
-    app_base_url: str = "http://gateway:8100"
+    # Base URL for links in emails (must be reachable from the user's browser)
+    app_base_url: str = "http://localhost:8100"
 
-    # Redis events
-    redis_url: str | None = None
-    redis_host: str = "redis"
-    redis_port: int = 6379
-    redis_password: str = ""
-    events_redis_db: int = 1
+    # Kafka / Redpanda — replaces Redis Pub/Sub
+    kafka_bootstrap_servers: str = "redpanda:9092"
+    kafka_consumer_group_id: str = "email-service-group"
+    kafka_client_id: str = "email-service"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
-    # def get_events_redis_url(self) -> str:
-    #     if self.redis_password:
-    #         return (
-    #             f"redis://:{self.redis_password}"
-    #             f"@{self.redis_host}:{self.redis_port}"
-    #             f"/{self.events_redis_db}"
-    #         )
-    #     return (
-    #         f"redis://{self.redis_host}"
-    #         f":{self.redis_port}"
-    #         f"/{self.events_redis_db}"
-    #     )
-
-    def get_events_redis_url(self) -> str:
-        if self.redis_url:
-            return self.redis_url
-        if self.redis_password:
-            return (
-                f"redis://:{self.redis_password}"
-                f"@{self.redis_host}:{self.redis_port}"
-                f"/{self.events_redis_db}"
-            )
-        return (
-            f"redis://{self.redis_host}:{self.redis_port}"
-            f"/{self.events_redis_db}"
-        )
 
 @lru_cache
 def get_settings() -> Settings:

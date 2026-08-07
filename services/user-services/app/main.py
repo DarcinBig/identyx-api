@@ -70,7 +70,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Identyx User Service",
     description="User profiles and management",
-    version="0.1.0",
+    version="0.1.5",
     lifespan=lifespan,
     docs_url="/docs" if settings.debug else None,
     redoc_url="/redoc" if settings.debug else None,
@@ -100,7 +100,7 @@ async def health_check():
     return {
         "service": "user-service",
         "status": overall,
-        "version": "0.1.0",
+        "version": "0.1.5",
         "uptime_seconds": uptime_seconds,
         "dependencies": {
             "database": db_status,

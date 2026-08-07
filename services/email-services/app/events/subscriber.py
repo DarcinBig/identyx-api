@@ -1,114 +1,156 @@
+"""
+EventSubscriber — Kafka via Redpanda.
+
+Replaces Redis Pub/Sub with a Kafka consumer.
+
+Key differences from Redis Pub/Sub:
+  - Messages are persisted to disk in Redpanda
+  - If email-service is down, messages are not lost
+  - The consumer resumes where it left off (offset)
+  - A consumer group ensures each message is processed once
+
+Usage in main.py:
+    subscriber = EventSubscriber(
+        bootstrap_servers="redpanda:9092",
+        group_id="email-service-group",
+        topics=["user.registered", "auth.suspicious"],
+    )
+    task = asyncio.create_task(subscriber.listen())
+"""
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
-import redis.asyncio as aioredis
+from aiokafka import AIOKafkaConsumer
+from aiokafka.errors import KafkaError
 
 Handler = Callable[[str], Awaitable[None]]
-logger = logging.getLogger("uvicorn.error")
+logger = logging.getLogger("email-service.auth")
 
 class EventSubscriber:
     """
-    Listens to Redis Pub/Sub channels and dispatches messages
-    to registered handlers.
+    Kafka consumer for email-service.
 
-    Runs in the background via asyncio.create_task().
-    Automatically reconnects in case of an error.
+    Listens to configured topics and dispatches messages
+    to handlers registered via @subscriber.on(topic).
+
+    Automatic reconnection in the event of disconnection.
     """
-    def __init__(self, redis_url: str):
-        self._redis_url = redis_url
+    def __init__(
+        self,
+        bootstrap_servers: str,
+        group_id: str = "email-service-group",
+        client_id: str = "email-service",
+    ):
+        self._bootstrap_servers = bootstrap_servers
+        self._group_id = group_id
+        self._client_id = client_id
         self._handlers: dict[str, list[Handler]] = {}
 
-    def on(self, channel: str):
+    def on(self, topic: str):
         """
-        Decorator for registering a handler on a channel.
+        Decorator for registering a handler on a topic.
 
         Usage:
-
             @subscriber.on("user.registered")
-            async def handle(data: str):
+            async def handle_user_registered(data: str):
                 ...
         """
         def decorator(func: Handler) -> Handler:
-            if channel not in self._handlers:
-                self._handlers[channel] = []
-            self._handlers[channel].append(func)
-            print(f"[EventSubscriber] Handler registered for '{channel}'")
+            if topic not in self._handlers:
+                self._handlers[topic] = []
+            self._handlers[topic].append(func)
+            logger.info("kafka_handler_registered", extra={"topic": topic})
             return func
         return decorator
 
     async def listen(self) -> None:
         """
         Main listening loop.
-        Runs indefinitely — start with `asyncio.create_task()`.
-        Reconnects automatically upon disconnection.
+        Runs indefinitely — launch using asyncio.create_task().
+        Automatically reconnects upon disconnection.
         """
-        logger.info("[EventSubscriber] listen() called")
-        logger.info(f"[EventSubscriber] Connecting to Redis at: {self._redis_url}]")
-        channels = list(self._handlers.keys())
-        if not channels:
-            logger.info("[EventSubscriber] No channels to listen to.")
+        topics = list(self._handlers.keys())
+        if not topics:
+            logger.warning("kafka_no_topics_registered")
             return
 
-        logger.info(f"[EventSubscriber] Listening on: {channels}")
+        logger.info("kafka_subscriber_starting", extra={"topics": topics})
 
         while True:
+            consumer = None
             try:
-                # socket_timeout=None → no timeout on reading
-                # socket_keepalive=True → keeps the connection alive
-                client = aioredis.from_url(
-                    self._redis_url,
-                    encoding="utf-8",
-                    decode_responses=True,
-                    socket_timeout=None,            # ← fix key
-                    socket_keepalive=True,          # ← maintains the connection
-                    socket_connect_timeout=5.0,     # connection timeout only
+                consumer = AIOKafkaConsumer(
+                    *topics,
+                    bootstrap_servers=self._bootstrap_servers,
+                    group_id=self._group_id,
+                    client_id=self._client_id,
+                    # Read from the beginning if the group has no offset.
+                    auto_offset_reset="earliest",
+                    # Disable auto-commit for manual control
+                    enable_auto_commit=True,
+                    auto_commit_interval_ms=1000,
+                    # UTF-8 deserialization
+                    value_deserializer=lambda v: v.decode("utf-8"),
+                    # Timeout de session
+                    session_timeout_ms=30000,
+                    heartbeat_interval_ms=10000,
                 )
-                async with client.pubsub() as pubsub:
-                    await pubsub.subscribe(*channels)
-                    logger.info(f"[EventSubscriber] Subscribed to {channels}")
 
-                    # Use get_message with explicit timeout
-                    # instead of listen() which blocks indefinitely
-                    while True:
+                await consumer.start()
+                logger.info("kafka_consumer_started", extra={"topics": topics})
+
+                async for message in consumer:
+                    topic = message.topic
+                    data = message.value
+
+                    logger.info(
+                        "kafka_message_received",
+                        extra={
+                            "topic": topic,
+                            "partition": message.partition,
+                            "offset": message.offset,
+                        },
+                    )
+
+                    handlers = self._handlers.get(topic, [])
+                    for handler in handlers:
                         try:
-                            message = await pubsub.get_message(
-                                ignore_subscribe_messages=True,
-                                timeout=1.0,  # poll every second
-                            )
-                        except asyncio.CancelledError:
-                            raise
+                            await handler(data)
                         except Exception as exc:
-                            logger.info(f"[EventSubscriber] get_message error: {exc}")
-                            break
-
-                        if message is None:
-                            # No message? We'll keep waiting.
-                            await asyncio.sleep(0.1)
-                            continue
-
-                        if message["type"] != "message":
-                            continue
-
-                        channel = message["channel"]
-                        data = message["data"]
-
-                        handlers = self._handlers.get(channel, [])
-                        for handler in handlers:
-                            try:
-                                await handler(data)
-                            except Exception as exc:
-                                logger.info(
-                                    f"[EventSubscriber] Handler error "
-                                    f"on '{channel}': {type(exc).__name__}: {exc}"
-                                )
+                            logger.error(
+                                "kafka_handler_error",
+                                extra={
+                                    "topic": topic,
+                                    "error": str(exc),
+                                    "error_type": type(exc).__name__,
+                                },
+                            )
 
             except asyncio.CancelledError:
-                logger.info("[EventSubscriber] Listener cancelled.")
+                logger.info("kafka_consumer_cancelled")
                 break
-            except Exception as exc:
-                logger.info(
-                    f"[EventSubscriber] Connection lost: {exc}. "
-                    f"Reconnecting in 5s..."
+            except KafkaError as exc:
+                logger.error(
+                    "kafka_connection_error",
+                    extra={
+                        "error": str(exc),
+                        "reconnecting_in": "5s",
+                    },
                 )
                 await asyncio.sleep(5)
+            except Exception as exc:
+                logger.error(
+                    "kafka_unexpected_error",
+                    extra={
+                        "error": str(exc),
+                        "reconnecting_in": "5s",
+                    },
+                )
+                await asyncio.sleep(5)
+            finally:
+                if consumer:
+                    try:
+                        await consumer.stop()
+                    except Exception:
+                        pass

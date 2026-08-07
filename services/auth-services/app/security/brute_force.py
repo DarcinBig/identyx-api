@@ -131,6 +131,28 @@ async def record_failed_attempt(
         logger.warning("Brute force record failed: %s", exc)
 
 
+async def get_failed_attempts_count(
+    email: str,
+    ip: str,
+    redis_url: str,
+) -> int:
+    """
+    Reads the current failed-attempt counter for the email key.
+
+    Must be called BEFORE reset_brute_force() so the caller can decide
+    whether a successful login follows prior failures (suspicious login).
+
+    Returns 0 if Redis is unavailable (fail-open).
+    """
+    try:
+        redis = await get_brute_force_redis(redis_url)
+        count = await redis.get(f"brute:email:{email.lower()}")
+        return int(count) if count else 0
+    except Exception as exc:
+        logger.warning("Brute force counter read failed: %s", exc)
+        return 0
+
+
 async def reset_brute_force(
     email: str,
     ip: str,

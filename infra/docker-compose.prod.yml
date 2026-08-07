@@ -7,7 +7,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
 # Override the image tag with IMAGE_TAG env var (default: latest):
-#   IMAGE_TAG=v0.1.0 docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+#   IMAGE_TAG=v0.1.5 docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
 
 services:
 

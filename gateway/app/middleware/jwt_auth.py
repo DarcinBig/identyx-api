@@ -9,6 +9,7 @@ Single responsibility:
 Public routes (no JWT required):
     - POST /auth/register
     - POST /auth/login
+    - GET /auth/verify-email
     - GET /health
 
 All other routes require a valid JWT.
@@ -29,6 +30,9 @@ logger = logging.getLogger("gateway.jwt")
 PUBLIC_ROUTES: set[tuple[str, str]] = {
     ("POST", "/auth/register"),
     ("POST", "/auth/login"),
+    ("GET", "/auth/verify-email"),
+    ("POST", "/auth/reset-password"),
+    ("GET", "/auth/reset-password"),
     ("GET", "/health"),
     ("GET", "/metrics"),
     ("GET", "/docs"),

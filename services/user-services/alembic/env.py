@@ -5,6 +5,7 @@ Reads database_url from app/core/config.py (Settings).
 Imports UserCredential so that Base.metadata is aware of the table.
 """
 import asyncio
+import logging
 import os
 import sys
 from logging.config import fileConfig
@@ -20,9 +21,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.config import get_settings
 from app.db.session import Base
+from app.models.email_verification import EmailVerification  # noqa: F401
 
 # IMPORTANT — import all models here
 # so that Base.metadata registers them
+from app.models.password_reset import PasswordReset  # noqa: F401
 from app.models.user import User  # noqa: F401
 
 settings = get_settings()
@@ -39,8 +42,20 @@ _db_url = settings.database_url.replace(
 config.set_main_option("sqlalchemy.url", _db_url)
 
 # Configure logging from alembic.ini
+# disable_existing_loggers=False → alembic must NOT silence the
+# application's loggers (they run in the same process during startup).
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    _app_root = logging.getLogger()
+    _app_root_level = _app_root.level
+    _app_root_handlers = _app_root.handlers[:]
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
+    # fileConfig() replaces the root logger's level + handlers with the
+    # values from alembic.ini ([logger_root] level=WARNING). When migrations
+    # run inside the service process (startup), that mutes the app's
+    # structured logs — restore the pre-existing root config here.
+    if _app_root_handlers:
+        _app_root.setLevel(_app_root_level)
+        _app_root.handlers[:] = _app_root_handlers
 
 # Target metadata — Alembic compares it with the actual database.
 target_metadata = Base.metadata

@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     # JWT
     refresh_token_expire_days: int = 7
 
+    # Multi-device — max active sessions per user
+    # When reached, the oldest active session is revoked on the next login
+    max_sessions_per_user: int = 5
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @model_validator(mode="after")

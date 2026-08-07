@@ -6,6 +6,7 @@ from app.dependencies import get_current_user_id
 from app.schemas.session import (
     CreateSessionRequest,
     MessageResponse,
+    RevokeAllSessionsRequest,
     RevokeSessionRequest,
     RotateSessionRequest,
     SessionListResponse,
@@ -69,6 +70,24 @@ async def revoke_session(data: RevokeSessionRequest, service: SessionService = D
     Called by the auth-service upon logout.
     """
     return await service.revoke_session(data)
+
+@router.post(
+    "/internal/revoke-all",
+    response_model=MessageResponse,
+    status_code=status.HTTP_200_OK,
+    summary="[Internal] Revoke all sessions by user",
+    include_in_schema=False,
+    operation_id="revoke-all-internal",
+)
+async def revoke_all_sessions_internal(
+        data: RevokeAllSessionsRequest,
+        service: SessionService = Depends(get_session_service)
+):
+    """
+    Revokes all active sessions for a user.
+    Called by the auth-service after a password reset.
+    """
+    return await service.revoke_all_sessions(data.user_id)
 
 @router.post(
     "/rotate",
