@@ -11,6 +11,10 @@ Principle:
 Path groups and their limits:
     - /auth/login → 10 req/min
     - /auth/register → 5 req/min
+    - /auth/reset-password → 3 req/min
+    - /auth/verify-email + resend → 5 req/min
+    - /auth/refresh → 20 req/min
+    - /sessions/* → 60 req/min
     - all other groups → 100 req/min (global)
 """
 import json
@@ -30,7 +34,7 @@ _redis: aioredis.Redis | None = None
 async def get_rate_limit_redis() -> aioredis.Redis:
     global _redis
     if _redis is None:
-        print(f"[RateLimit] Connecting to Redis: {settings.rate_limit_redis_url[:30]}...")
+        logger.info("Connecting to Redis: %s", settings.rate_limit_redis_url[:30])
         _redis = aioredis.from_url(
             settings.rate_limit_redis_url,
             encoding="utf-8",
@@ -40,10 +44,19 @@ async def get_rate_limit_redis() -> aioredis.Redis:
 
 
 def _get_limit_for_path(path: str) -> int:
-    if path == "/auth/login":
+    if path in ("/v1/auth/login", "/auth/login"):
         return settings.rate_limit_login
-    if path == "/auth/register":
+    if path in ("/v1/auth/register", "/auth/register"):
         return settings.rate_limit_register
+    if path in ("/v1/auth/reset-password", "/auth/reset-password"):
+        return settings.rate_limit_reset_password
+    if path in ("/v1/auth/verify-email", "/auth/verify-email",
+                "/v1/auth/resend-verification", "/auth/resend-verification"):
+        return settings.rate_limit_verify_email
+    if path in ("/v1/auth/refresh", "/auth/refresh"):
+        return settings.rate_limit_refresh
+    if path.startswith("/v1/sessions") or path.startswith("/sessions"):
+        return settings.rate_limit_sessions
     return settings.rate_limit_global
 
 

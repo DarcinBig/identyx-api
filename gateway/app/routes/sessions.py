@@ -1,12 +1,13 @@
 import httpx
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 
 import app.http as http_state
 from app.core.config import get_settings
+from app.deps import bearer_scheme
 
 settings = get_settings()
-router = APIRouter(prefix="/sessions", tags=["sessions"])
+router = APIRouter(prefix="/sessions", tags=["sessions"], dependencies=[Depends(bearer_scheme)])
 
 
 async def _proxy(request: Request, path: str) -> JSONResponse:
@@ -57,25 +58,44 @@ async def _proxy(request: Request, path: str) -> JSONResponse:
         )
 
 @router.get("/", operation_id="index")
+@router.get("", operation_id="index-no-slash", include_in_schema=False)
 async def list_sessions(request: Request):
     """
-    X-User-Id injected by the gateway — session-service extracts it.
+    List the active sessions of the authenticated user.
 
-    GET /sessions → session-service
+    **Auth** — `Authorization: Bearer <access_token>`.
+
+    The gateway resolves the user id from the token and forwards it to the
+    session-service — the caller never provides it.
+
+    **Success** `200` — `{total, sessions: [...]}`.
+    **Errors** — `401` missing/invalid/expired token.
     """
     return await _proxy(request, "/sessions/")
 
-@router.get("/{session_id}", operation_id="session-id")
-async def get_session(request: Request, session_id: str):
-    """GET /sessions/{session_id} → session-service"""
-    return await _proxy(request, f"/sessions/{session_id}")
-
 @router.delete("/revoke-all", operation_id="revoke-all")
 async def revoke_all_sessions(request: Request):
-    """DELETE /sessions/revoke-all → session-service"""
+    """
+    Revoke every session of the authenticated user (sign out everywhere).
+
+    **Auth** — `Authorization: Bearer <access_token>`.
+
+    **Success** `200` — confirmation with the number of revoked sessions.
+    **Errors** — `401`.
+    """
     return await _proxy(request, "/sessions/revoke-all")
 
 @router.delete("/{session_id}", operation_id="delete")
 async def delete_session(request: Request, session_id: str):
-    """DELETE /sessions/{session_id} → session-service"""
+    """
+    Revoke a single session.
+
+    **Auth** — `Authorization: Bearer <access_token>`.
+
+    **Path params** — `session_id`: UUID of the session.
+    Only sessions owned by the authenticated user can be revoked (`403`).
+
+    **Success** `200`.
+    **Errors** — `401`, `403` not the owner, `404` session not found.
+    """
     return await _proxy(request, f"/sessions/{session_id}")

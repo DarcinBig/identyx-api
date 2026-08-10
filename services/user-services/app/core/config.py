@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # we will switch to Cloudinary or AWS S3 as needed.
     storage_provider: str = "github"
 
+    # Shared secret for inter-service calls (X-Internal-Key).
+    # Protects the /users/internal/* endpoints from direct network access.
+    internal_api_key: str = ""
+
     model_config = {"env_file": ".env"}
 
     @model_validator(mode="after")

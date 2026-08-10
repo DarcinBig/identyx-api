@@ -51,12 +51,52 @@ jobs:
       - name: Lint with ruff
         working-directory: ${{ matrix.service }}
         run: uv run ruff check . --output-format=github
-        continue-on-error: true
 
       - name: Run tests
         working-directory: ${{ matrix.service }}
         run: uv run pytest tests/ -v --tb=short
         if: ${{ hashFiles(format('{0}/tests/**', matrix.service)) != '' }}
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Prepare environment
+        run: |
+          cp .env.example .env
+          # The E2E suite registers several users in one minute — raise the
+          # per-IP limit so rate limiting does not make it flaky.
+          sed -i 's/^RATE_LIMIT_REGISTER=.*/RATE_LIMIT_REGISTER=100/' .env
+
+      - name: Set up Python + uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.14
+
+      - name: Install root dev dependencies
+        run: uv sync --dev
+
+      - name: Start the full stack
+        run: |
+          docker compose -f infra/docker-compose.yml up -d --build
+          docker compose -f infra/docker-compose.yml ps
+
+      - name: Run E2E suite (pytest through the gateway)
+        run: uv run pytest tests/e2e -v --tb=short
+
+      - name: Collect stack logs on failure
+        if: failure()
+        run: docker compose -f infra/docker-compose.yml logs --tail=200
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f infra/docker-compose.yml down -v
 
   build-images:
     runs-on: ubuntu-latest

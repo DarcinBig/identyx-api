@@ -15,6 +15,8 @@ from app.core.config import get_settings
 from app.providers.smtp import send_email
 from app.schemas.email import (
     EmailSentResponse,
+    SendAccountDeletionEmailRequest,
+    SendEmailChangeEmailRequest,
     SendNewLoginEmailRequest,
     SendResetPasswordEmailRequest,
     SendSecurityAlertEmailRequest,
@@ -49,7 +51,7 @@ class EmailService:
         TODO Implement the verification logic.
         """
         verification_url = (
-            f"{settings.app_base_url}/auth/verify-email"
+            f"{settings.app_base_url}/v1/auth/verify-email"
             f"?token={data.verification_token}"
         )
 
@@ -91,7 +93,7 @@ class EmailService:
         Sent after every successful login so the user can
         detect an unauthorized access from an unknown device.
         """
-        secure_url = f"{settings.app_base_url}/auth/reset-password"
+        secure_url = f"{settings.app_base_url}/v1/auth/reset-password"
 
         # Render HTML template
         template = _jinja_env.get_template("new_login.html")
@@ -139,7 +141,7 @@ class EmailService:
             {app_base_url}/auth/reset-password?token={reset_token}
         """
         reset_url = (
-            f"{settings.app_base_url}/auth/reset-password"
+            f"{settings.app_base_url}/v1/auth/reset-password"
             f"?token={data.reset_token}"
         )
 
@@ -180,7 +182,7 @@ class EmailService:
         Triggered after a successful login following multiple failed attempts.
         """
         reset_url = (
-            f"{settings.app_base_url}/auth/reset-password"
+            f"{settings.app_base_url}/v1/auth/reset-password"
             f"?token={data.reset_token}"
         )
 
@@ -211,6 +213,106 @@ class EmailService:
 
         return EmailSentResponse(
             message="Security alert email sent." if sent else "Failed to send security alert.",
+            email=data.email,
+            sent=sent,
+        )
+
+    async def send_account_deletion_email(
+        self, data: SendAccountDeletionEmailRequest
+    ) -> EmailSentResponse:
+        """
+        Sends a GDPR account deletion confirmation email.
+        Triggered when the owner requests a deletion.
+
+        Link URL:
+            {app_base_url}/auth/confirm-deletion?token={deletion_token}
+
+        The account is only erased once the link is confirmed.
+        The link is single-use and expires after 24 hours.
+        """
+        deletion_url = (
+            f"{settings.app_base_url}/v1/auth/confirm-deletion"
+            f"?token={data.deletion_token}"
+        )
+
+        template = _jinja_env.get_template("account_deletion.html")
+        html_content = template.render(
+            username=data.username,
+            deletion_url=deletion_url,
+            year=datetime.now().year,
+        )
+
+        text_content = (
+            f"Hi {data.username},\n\n"
+            f"We received a request to permanently delete your Identyx "
+            f"account.\n\n"
+            f"If this was you, confirm the deletion by visiting:\n"
+            f"{deletion_url}\n\n"
+            f"This action is irreversible and all your data will be "
+            f"permanently erased.\n"
+            f"This link expires in 24 hours.\n"
+            f"If you did not request this, you can safely ignore this email.\n\n"
+            f"— The Identyx team"
+        )
+
+        sent = await send_email(
+            to_email=data.email,
+            subject="Confirm your account deletion — Identyx",
+            html_content=html_content,
+            text_content=text_content,
+        )
+
+        return EmailSentResponse(
+            message="Account deletion email sent." if sent else "Failed to send account deletion email.",
+            email=data.email,
+            sent=sent,
+        )
+
+    async def send_email_change_email(
+        self, data: SendEmailChangeEmailRequest
+    ) -> EmailSentResponse:
+        """
+        Sends an email change confirmation email.
+        Sent to the NEW address when the owner requests a change.
+
+        Link URL:
+            {app_base_url}/auth/confirm-email-change?token={email_change_token}
+
+        The email is only replaced once the link is confirmed.
+        The link is single-use and expires after 24 hours.
+        """
+        email_change_url = (
+            f"{settings.app_base_url}/v1/auth/confirm-email-change"
+            f"?token={data.email_change_token}"
+        )
+
+        template = _jinja_env.get_template("email_change.html")
+        html_content = template.render(
+            username=data.username,
+            email_change_url=email_change_url,
+            year=datetime.now().year,
+        )
+
+        text_content = (
+            f"Hi {data.username},\n\n"
+            f"You asked to change the email address associated with your "
+            f"Identyx account.\n\n"
+            f"Confirm the change by visiting:\n"
+            f"{email_change_url}\n\n"
+            f"This link expires in 24 hours.\n"
+            f"If you did not request this, you can safely ignore this email.\n\n"
+            f"— The Identyx team"
+        )
+
+        sent = await send_email(
+            to_email=data.email,
+            subject="Confirm your new email address — Identyx",
+            html_content=html_content,
+            text_content=text_content,
+        )
+
+        return EmailSentResponse(
+            message="Email change email sent." if sent else "Failed to send email change email.",
             email=data.email,
             sent=sent,
         )

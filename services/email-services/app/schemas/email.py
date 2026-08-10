@@ -44,6 +44,26 @@ class SendNewLoginEmailRequest(BaseModel):
     login_time: str
     location: str      # "Paris, France" — resolved from client_ip
 
+class SendAccountDeletionEmailRequest(BaseModel):
+    """
+    Triggers the sending of a GDPR account deletion confirmation email.
+    Sent when the account owner requests a deletion.
+    The deletion only happens once the one-time link is confirmed.
+    """
+    email: EmailStr
+    username: str
+    deletion_token: str   # opaque token for the deletion confirmation link
+
+class SendEmailChangeEmailRequest(BaseModel):
+    """
+    Triggers the sending of an email change confirmation email.
+    Sent to the NEW address when the owner requests an email change.
+    The change only happens once the one-time link is confirmed.
+    """
+    email: EmailStr
+    username: str
+    email_change_token: str   # opaque token for the email change link
+
 # --- Responses -----------------------------------------------
 
 class EmailSentResponse(BaseModel):

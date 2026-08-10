@@ -1,19 +1,19 @@
 """
 Brute-force protection on login.
 
-Principle:
-    - Redis key: brute:{ip}:{email}
-    - After each failed login → increment the counter
-    - After 5 failed logins → 15-minute lockout
-    - After a successful login → reset the counter
-
-Double IP + email key to protect:
-    - the account (someone tests an email address from multiple IP addresses)
-    - the IP address (someone tests multiple email addresses from the same IP address)
-
-We use two separate keys:
-    brute:email:{email} → protects the account
+Two independent counters protect two different attack patterns:
+    brute:email:{email} → protects the ACCOUNT
+        An attacker rotating IPs cannot bypass it: the counter is bound
+        to the email, not to the network origin.
     brute:ip:{ip} → protects against distributed attacks
+        Someone testing many different emails from a single IP. More
+        tolerant (max_attempts × 3) because NAT / offices share IPs.
+
+Rules:
+    - After each failed login → increment both counters
+    - After max_attempts failures on the account → 15-minute lockout
+      (429 regardless of the IP used)
+    - After a successful login → reset both counters
 """
 import logging
 

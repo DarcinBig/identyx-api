@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 
 CHANNEL_USER_REGISTERED = "user.registered"
 CHANNEL_USER_DELETED = "user.deleted"
+CHANNEL_USER_DELETION_REQUESTED = "user.deletion_requested"
+CHANNEL_USER_EMAIL_CHANGE_REQUESTED = "user.email_change_requested"
 CHANNEL_AUTH_LOGIN = "auth.login"
 CHANNEL_AUTH_SUSPICIOUS = "auth.suspicious"
 CHANNEL_AUTH_NEW_LOGIN = "auth.new_login"
@@ -53,6 +55,61 @@ class UserDeletedEvent:
 
     @classmethod
     def from_json(cls, data: str) -> UserDeletedEvent:
+        return cls(**json.loads(data))
+
+@dataclass
+class UserDeletionRequestedEvent:
+    """
+    Published by auth-service when the owner requests a GDPR account
+    deletion. Consumed by the email-service to send the confirmation
+    email containing the deletion link.
+
+    deletion_token: HMAC-signed one-time token used to build the
+                    confirmation link in the email. Expires after 24h.
+    """
+    user_id: str
+    email: str
+    username: str
+    deletion_token: str
+    occurred_at: str = ""
+
+    def __post_init__(self):
+        if not self.occurred_at:
+            self.occurred_at = datetime.now(UTC).isoformat()
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self))
+
+    @classmethod
+    def from_json(cls, data: str) -> UserDeletionRequestedEvent:
+        return cls(**json.loads(data))
+
+@dataclass
+class UserEmailChangeRequestedEvent:
+    """
+    Published by auth-service when the owner asks to change their email
+    address. Consumed by the email-service to send the confirmation
+    email to the NEW address.
+
+    email: the pending (new) email address.
+    email_change_token: HMAC-signed one-time token used to build the
+                        confirmation link in the email. Expires after 24h.
+    """
+    user_id: str
+    email: str
+    username: str
+    email_change_token: str
+    occurred_at: str = ""
+
+    def __post_init__(self):
+        if not self.occurred_at:
+            self.occurred_at = datetime.now(UTC).isoformat()
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self))
+
+    @classmethod
+    def from_json(cls, data: str) -> UserEmailChangeRequestedEvent:
         return cls(**json.loads(data))
 
 @dataclass

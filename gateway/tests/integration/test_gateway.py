@@ -40,7 +40,7 @@ class TestPublicRoutes:
                 base_url="http://test"
             ) as async_client:
                 response = await async_client.get(
-                    "/users/me",
+                    "/v1/users/me",
                     headers={"Authorization": "Bearer invalid.token.here"}
                 )
 
@@ -66,6 +66,37 @@ class TestSecurityHeaders:
         assert response.headers.get("x-frame-options") == "DENY"
         assert response.headers.get("x-xss-protection") == "1; mode=block"
 
+class TestDocsDisabledInProduction:
+    @pytest.mark.asyncio
+    async def test_docs_and_openapi_disabled_when_environment_production(self):
+        import importlib
+
+        import app.core.config as config_module
+        import app.main as main_module
+        from app.core.config import Settings
+
+        with patch.object(config_module, "get_settings", return_value=Settings(environment="production")):
+            importlib.reload(main_module)
+            app = main_module.app
+            try:
+                mock_client = AsyncMock()
+                mock_response = MagicMock()
+                mock_response.status_code = 200
+                mock_client.get = AsyncMock(return_value=mock_response)
+
+                with patch("app.http.client", mock_client):
+                    async with AsyncClient(
+                        transport=ASGITransport(app=app),
+                        base_url="http://test"
+                    ) as async_client:
+                        docs = await async_client.get("/docs")
+                        openapi = await async_client.get("/openapi.json")
+                assert docs.status_code == 404
+                assert openapi.status_code == 404
+            finally:
+                # Restore the module so later tests see the default app
+                importlib.reload(main_module)
+
 class TestRateLimit:
     @pytest.mark.asyncio
     async def test_rate_limit_triggers_after_threshold(self, mock_rate_limit_redis):
@@ -80,7 +111,7 @@ class TestRateLimit:
             base_url="http://test"
         ) as client:
             response = await client.post(
-                "/auth/login",
+                "/v1/auth/login",
                 json={"email": "test@example.com", "password": "wrong"}
             )
 

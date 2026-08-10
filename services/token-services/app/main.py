@@ -9,8 +9,11 @@ from app.cache.redis import close_redis, get_redis, init_redis
 from app.core.config import get_settings
 from app.core.logging.config import setup_logging
 from app.metrics.prometheus import MetricsMiddleware, metrics_response
+from app.observability.tracing import instrument_fastapi, setup_tracing
 
 setup_logging(service_name="token-service")
+
+setup_tracing(service_name="identyx-token")
 
 logger = logging.getLogger("token-service")
 
@@ -37,7 +40,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Identyx Token Service",
     description="JWT generation and validation",
-    version="0.1.5",
+    version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs" if settings.debug else None,
     redoc_url="/redoc" if settings.debug else None,
@@ -47,6 +50,9 @@ app = FastAPI(
 app.add_middleware(MetricsMiddleware, service_name="token-service")
 
 app.include_router(tokens_router)
+
+# OpenTelemetry auto-instrumentation (no-op when tracing is disabled)
+instrument_fastapi(app)
 
 @app.get("/health", tags=["observability"], operation_id="check")
 async def health_check():
@@ -65,7 +71,7 @@ async def health_check():
     return {
         "service": "token-service",
         "status": overall,
-        "version": "0.1.5",
+        "version": "1.0.0",
         "uptime_seconds": uptime_seconds,
         "dependencies": {
             "redis":  redis_status,

@@ -1,0 +1,9 @@
+# Identyx — Caddy reverse proxy
+# Automatic HTTPS (Let's Encrypt) on ports 80/443.
+# The DOMAIN env var is injected by docker-compose.prod.yml.
+
+{$DOMAIN:api.identyx.io} {
+	encode zstd gzip
+
+	reverse_proxy gateway:8100
+}

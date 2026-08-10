@@ -4,6 +4,8 @@ JWT generation and validation with python-jose.
 Payload access token:
     {
         "sub": "user_id",
+        "iss": "identyx",
+        "aud": "identyx-api",
         "type": "access",
         "jti": "uuid4", ← unique identifier for the blacklist
         "iat": timestamp,
@@ -45,6 +47,8 @@ def generate_access_token(user_id: str) -> tuple[str, str, datetime]:
 
     payload = {
         "sub": user_id,
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
         "type": "access",
         "jti": jti,
         "iat": now,
@@ -62,7 +66,7 @@ def decode_access_token(token: str) -> dict:
     """
     Decodes and validates a JWT access token.
 
-    Checks: signature, expiration, type = "access".
+    Checks: signature, expiration, issuer, audience, type = "access".
     Returns the decoded payload.
 
     Reasons:
@@ -73,6 +77,8 @@ def decode_access_token(token: str) -> dict:
             token,
             settings.jwt_secret_key,
             algorithms=[settings.jwt_algorithm],
+            audience=settings.jwt_audience,
+            issuer=settings.jwt_issuer,
         )
     except ExpiredSignatureError:
         raise HTTPException(

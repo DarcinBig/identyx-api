@@ -16,8 +16,9 @@ Usage:
     asyncio.create_task(subscriber.listen())
 """
 import asyncio
+from collections.abc import Awaitable, Callable
+
 import redis.asyncio as aioredis
-from typing import Awaitable, Callable
 
 Handler = Callable[[str], Awaitable[None]]
 

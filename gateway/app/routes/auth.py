@@ -1,10 +1,11 @@
 # This router receives all /auth/* requests and forwards them to auth-service
 import httpx
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 
 import app.http as http_state
 from app.core.config import get_settings
+from app.deps import bearer_scheme
 
 settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -42,15 +43,12 @@ async def _proxy(request: Request, path: str) -> JSONResponse:
         if key.lower() not in ("host", "content-length")
     }
 
-    # Ensure the real client IP reaches the target service
-    # Used by auth-service for device_info and brute-force tracking
+    # Set the real client IP as the ONLY X-Forwarded-For value.
+    # The inbound X-Forwarded-For header (attacker-controlled) is ignored —
+    # otherwise a client could spoof its IP and bypass the brute-force lockout.
+    # Used by auth-service for device_info and brute-force tracking.
     client_ip = request.client.host if request.client else "unknown"
-    existing_forwarded_for = request.headers.get("x-forwarded-for", "")
-    headers["x-forwarded-for"] = (
-        f"{existing_forwarded_for}, {client_ip}"
-        if existing_forwarded_for
-        else client_ip
-    )
+    headers["x-forwarded-for"] = client_ip
 
     try:
         response = await http_state.client.request(
@@ -85,24 +83,73 @@ async def _proxy(request: Request, path: str) -> JSONResponse:
 
 @router.post("/register", operation_id="register")
 async def register(request: Request):
-    """POST /auth/register -> auth-service"""
+    """
+    Create a new account and start the session.
+
+    - Sends a verification email (via Redpanda → email-service).
+    - Returns an access/refresh token pair and the created user.
+    - The email is normalized (lowercased + trimmed): registering the same
+      email twice returns `409 Conflict`.
+    - Rate limited: `RATE_LIMIT_REGISTER` (default 5 req/min per IP).
+
+    **Body** `application/json`:
+    ```json
+    {
+      "email": "user@example.com",
+      "username": "user_2026",
+      "password": "StrongPass!2026"
+    }
+    ```
+    - `email`: valid email, normalized to lowercase.
+    - `username`: 3–50 chars, `[a-zA-Z0-9_-]`.
+    - `password`: min 8 chars, with 1 uppercase, 1 digit, 1 punctuation.
+
+    **Success** `201` — `{access_token, refresh_token, token_type, user}`.
+    **Errors** — `422` invalid body, `409` email already registered.
+    """
     return await _proxy(request, "/auth/register")
 
 @router.post("/login", operation_id="login")
 async def login(request: Request):
-    """POST /auth/login -> auth-service"""
+    """
+    Authenticate with email + password.
+
+    - Returns a fresh access/refresh token pair and the user object.
+    - Sends a "new device login" alert email when the device is unknown.
+    - Brute-force protection: after `BRUTE_FORCE_MAX_ATTEMPTS` failures the
+      IP is locked out for `BRUTE_FORCE_LOCKOUT_MINUTES` (based on
+      X-Forwarded-For set by the gateway).
+    - Rate limited: `RATE_LIMIT_LOGIN` (default 10 req/min per IP).
+
+    **Body** `application/json`:
+    ```json
+    { "email": "user@example.com", "password": "StrongPass!2026" }
+    ```
+
+    **Success** `200` — `{access_token, refresh_token, token_type, user}`.
+    **Errors** — `401` invalid credentials / locked out, `422` invalid body.
+    """
     return await _proxy(request, "/auth/login")
 
-@router.post("/logout", operation_id="logout")
+@router.post("/logout", operation_id="logout", dependencies=[Depends(bearer_scheme)])
 async def logout(request: Request):
     """
-    The gateway extracts the access token from the Authorization header
-    and injects it into the body before forwarding it to the auth-service.
-    This allows the auth-service to revoke the access token in Redis.
+    End the session and revoke the tokens.
 
-    POST /auth/logout -> auth-service
+    - The refresh token in the body revokes the session (session-service).
+    - The access token from the `Authorization` header is blacklisted in
+      Redis (extracted by the gateway as `X-Access-Token`).
+
+    **Auth** — `Authorization: Bearer <access_token>`.
+
+    **Body** `application/json`:
+    ```json
+    { "refresh_token": "<refresh_token>" }
+    ```
+
+    **Success** `200`.
+    **Errors** — `401` missing/invalid token or unknown refresh token.
     """
-
     if http_state.client is None:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -118,19 +165,11 @@ async def logout(request: Request):
         if key.lower() not in ("host", "content-length")
     }
 
-    # Ensure the real client IP reaches the target service
+    # Set the real client IP as the ONLY X-Forwarded-For value.
+    # The inbound header (attacker-controlled) is ignored so a client
+    # cannot spoof its IP and bypass the brute-force lockout.
     client_ip = request.client.host if request.client else "unknown"
-    existing_forwarded_for = request.headers.get("x-forwarded-for", "")
-    headers["x-forwarded-for"] = (
-        f"{existing_forwarded_for}, {client_ip}"
-        if existing_forwarded_for
-        else client_ip
-    )
-
-    # try:
-    #     body = json_lib.loads(body_bytes) if body_bytes else {}
-    # except Exception:
-    #     body = {}
+    headers["x-forwarded-for"] = client_ip
 
     # Extract the access token from the Authorization header
     auth_header = request.headers.get("Authorization", "")
@@ -138,10 +177,6 @@ async def logout(request: Request):
         access_token = auth_header[len("Bearer "):]
         if access_token.strip():
             headers["x-access-token"] = access_token.strip()
-            print(f"[gateway/logout] X-Access-Token injected: {access_token[:30]}...")
-
-    # Rebuild the enriched body
-    # enriched_body = json_lib.dumps(body).encode("utf-8")
 
     try:
         response = await http_state.client.post(
@@ -171,23 +206,106 @@ async def logout(request: Request):
 
 @router.post("/refresh", operation_id="refresh-token")
 async def refresh(request: Request):
-    """POST /auth/refresh -> auth-service"""
+    """
+    Rotate the refresh token into a fresh access/refresh pair.
+
+    - The refresh token is single-use: it is rotated on every call.
+    - A revoked, expired or reused token returns `401`.
+
+    **Body** `application/json`:
+    ```json
+    { "refresh_token": "<refresh_token>" }
+    ```
+
+    **Success** `200` — `{access_token, refresh_token, token_type}`.
+    **Errors** — `401` invalid/expired/revoked refresh token, `422` invalid body.
+    """
     return await _proxy(request, "/auth/refresh")
 
 @router.get("/verify-email", operation_id="verify-email")
 async def verify_email(request: Request):
     """
-    GET /auth/verify-email -> auth-service
+    Verify the email address with the one-time HMAC token from the link.
+
     Public route — no JWT required.
-    The token is passed as a query param: ?token=xxx
+
+    **Query params** — `?token=<verification_token>` (received by email).
+
+    **Success** `200` — `{message, email, is_verified}`.
+    The token is single-use: a second call returns `400`.
+    **Errors** — `400` missing/invalid/already-used token.
     """
     return await _proxy(request, "/auth/verify-email")
 
 @router.post("/reset-password", operation_id="reset-password")
 async def reset_password(request: Request):
     """
-    POST /auth/reset-password -> auth-service
+    Set a new password using the one-time token from the email link.
+
     Public route — no JWT required.
-    Body: { "token": "...", "new_password": "..." }
+
+    **Body** `application/json`:
+    ```json
+    { "token": "<reset_token>", "new_password": "NewStrong!2026" }
+    ```
+
+    **Success** `200`.
+    **Errors** — `400` invalid/expired token, `422` invalid body.
     """
     return await _proxy(request, "/auth/reset-password")
+
+@router.post("/resend-verification", operation_id="resend-verification")
+async def resend_verification(request: Request):
+    """
+    Re-send the verification email for an account.
+
+    Public route — no JWT required.
+    Anti-enumeration: the response is identical whether or not the email
+    exists (`200` in both cases), so callers cannot probe registered emails.
+
+    **Body** `application/json`:
+    ```json
+    { "email": "user@example.com" }
+    ```
+
+    **Success** `200`.
+    """
+    return await _proxy(request, "/auth/resend-verification")
+
+@router.post("/confirm-deletion", operation_id="confirm-deletion")
+async def confirm_deletion(request: Request):
+    """
+    Permanently delete an account (GDPR) using the one-time email token.
+
+    Public route — no JWT required. The token is sent by email after a
+    `POST /users/{user_id}/deletion-request` and proves the account owner
+    controls the email address. This operation is irreversible.
+
+    **Body** `application/json`:
+    ```json
+    { "token": "<deletion_token>" }
+    ```
+
+    **Success** `200` — `{message}`.
+    **Errors** — `400` invalid/expired/already-used token, `422` invalid body.
+    """
+    return await _proxy(request, "/auth/confirm-deletion")
+
+@router.post("/confirm-email-change", operation_id="confirm-email-change")
+async def confirm_email_change(request: Request):
+    """
+    Apply an email address change using the one-time token.
+
+    Public route — no JWT required. The token is sent by email to the NEW
+    address after a `POST /users/{user_id}/email-change` and proves the
+    caller controls the new address before it becomes active.
+
+    **Body** `application/json`:
+    ```json
+    { "token": "<email_change_token>" }
+    ```
+
+    **Success** `200` — `{message}`.
+    **Errors** — `400` invalid/expired/already-used token, `422` invalid body.
+    """
+    return await _proxy(request, "/auth/confirm-email-change")

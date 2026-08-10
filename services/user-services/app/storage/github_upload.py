@@ -1,11 +1,20 @@
+import asyncio
 import base64
+import logging
 
 import httpx
 
 from app.core.config import get_settings
 from app.storage.base import StorageProvider
 
+logger = logging.getLogger("user-service.storage.github")
+
 settings = get_settings()
+
+# Status codes that are safe to retry (transient errors).
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+_RETRY_ATTEMPTS = 3
+_RETRY_BACKOFF_SECONDS = 0.5
 
 class GithHubStorageProvider(StorageProvider):
     """
@@ -23,6 +32,10 @@ class GithHubStorageProvider(StorageProvider):
         - A public GitHub repository (so that raw URLs are accessible)
         - A GitHub token with "repo" permissions (read + write contents)
         - A default.png file already present in the repository.
+
+    Robustness:
+        - A single shared httpx.AsyncClient (connection pooling).
+        - Uploads/deletes retry on 429/5xx (transient) with exponential backoff.
     """
     BASE_API = "https://api.github.com"
 
@@ -38,12 +51,16 @@ class GithHubStorageProvider(StorageProvider):
                 "Generate a fine-grained token with Contents: Read and Write "
                 "on the repository and add it to your .env file."
             )
-        
-        self.headers = {
-            "Authorization": f"Bearer {settings.github_token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
+
+        self._client = httpx.AsyncClient(
+            base_url=self.BASE_API,
+            headers={
+                "Authorization": f"Bearer {settings.github_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=10.0,
+        )
 
     def _file_path(self, filename: str) -> str:
         """File path in the repo"""
@@ -60,7 +77,32 @@ class GithHubStorageProvider(StorageProvider):
     def _api_url(self, filename: str) -> str:
         """GitHub Contents API URL for this file"""
         path = self._file_path(filename)
-        return f"{self.BASE_API}/repos/{self.owner}/{self.repo}/contents/{path}"
+        return f"/repos/{self.owner}/{self.repo}/contents/{path}"
+
+    async def _request_with_retry(self, method: str, url: str, **kwargs) -> httpx.Response:
+        """
+        Performs an HTTP request with retries on transient errors.
+
+        Retries 429/5xx up to _RETRY_ATTEMPTS times with exponential backoff.
+        """
+        attempt = 0
+        while True:
+            attempt += 1
+            response = await self._client.request(method, url, **kwargs)
+            if response.status_code not in _RETRYABLE_STATUS_CODES or attempt >= _RETRY_ATTEMPTS:
+                return response
+            wait = _RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1))
+            logger.warning(
+                "github_api_retry",
+                extra={
+                    "method": method,
+                    "url": url,
+                    "status": response.status_code,
+                    "attempt": attempt,
+                    "wait": wait,
+                },
+            )
+            await asyncio.sleep(wait)
 
     async def _get_file_sha(self, filename: str) -> str | None:
         """
@@ -68,14 +110,13 @@ class GithHubStorageProvider(StorageProvider):
         Required by the GitHub API to update or delete a file.
         Returns None if the file does not exist.
         """
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                self._api_url(filename),
-                headers=self.headers,
-            )
-            if response.status_code == 200:
-                return response.json().get("sha")
+        response = await self._request_with_retry("GET", self._api_url(filename))
+        if response.status_code == 200:
+            return response.json().get("sha")
+        if response.status_code == 404:
             return None
+        response.raise_for_status()
+        return None
 
     async def upload(self, file_content: bytes, filename: str, content_type: str) -> str:
         """
@@ -100,12 +141,9 @@ class GithHubStorageProvider(StorageProvider):
             # Updating an existing file
             payload["sha"] = sha
 
-        async with httpx.AsyncClient() as client:
-            response = await client.put(
-                self._api_url(filename),
-                headers=self.headers,
-                json=payload,
-            )
+        response = await self._request_with_retry(
+            "PUT", self._api_url(filename), json=payload
+        )
         if response.status_code not in (200, 201):
             raise RuntimeError(
                 f"GitHub upload failed: {response.status_code} — "
@@ -127,13 +165,9 @@ class GithHubStorageProvider(StorageProvider):
             "sha": sha,
             "branch": self.branch,
         }
-        async with httpx.AsyncClient() as client:
-            response = await client.request(
-                method="DELETE",
-                url=self._api_url(filename),
-                headers=self.headers,
-                json=payload,
-            )
+        response = await self._request_with_retry(
+            "DELETE", self._api_url(filename), json=payload
+        )
         return response.status_code == 200
 
     async def exists(self, filename: str) -> bool:
@@ -141,3 +175,6 @@ class GithHubStorageProvider(StorageProvider):
         sha = await self._get_file_sha(filename)
         return sha is not None
 
+    async def close(self) -> None:
+        """Releases the shared HTTP client (call on shutdown)."""
+        await self._client.aclose()

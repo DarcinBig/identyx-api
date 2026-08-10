@@ -1,18 +1,31 @@
+import logging
+
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.dependencies import require_internal_key
 from app.schemas.auth import (
     AuthResponse,
+    ConfirmDeletionRequest,
+    ConfirmEmailChangeRequest,
+    CreateDeletionRequestRequest,
+    DeletionRequestResponse,
+    EmailChangeRequest,
     LoginRequest,
     LogoutRequest,
     MessageResponse,
     RefreshRequest,
     RegisterRequest,
+    ResendVerificationRequest,
     ResetPasswordRequest,
     VerifyEmailResponse,
+    VerifyPasswordRequest,
+    VerifyPasswordResponse,
 )
 from app.services.auth_service import AuthService
+
+logger = logging.getLogger("auth-service")
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -108,8 +121,10 @@ async def logout(
     """
     access_token = request.headers.get("X-Access-Token", "").strip() or None
 
-    print(f"[route/logout] refresh_token: {data.refresh_token[:20]}...")
-    print(f"[route/logout] access_token header: {access_token[:30] if access_token else 'None'}")
+    logger.info("logout_received", extra={
+        "refresh_token_prefix": data.refresh_token[:20],
+        "has_access_token": bool(access_token),
+    })
 
     return await service.logout(
         refresh_token=data.refresh_token,
@@ -174,3 +189,126 @@ async def reset_password(
         raw_token=data.token,
         new_password=data.new_password,
     )
+
+@router.post(
+    "/resend-verification",
+    response_model=MessageResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Resend the email verification link",
+    operation_id="resend-verification",
+)
+async def resend_verification(
+        data: ResendVerificationRequest,
+        service: AuthService = Depends(get_auth_service),
+):
+    """
+    Re-sends the verification email if the user never received it.
+
+    - The email is not disclosed (generic response)
+    - If the account is already verified, nothing is resent
+    - A fresh HMAC token is generated and stored (single-use, 24h)
+    """
+    return await service.resend_verification(data.email)
+
+@router.post(
+    "/internal/verify-password",
+    response_model=VerifyPasswordResponse,
+    status_code=status.HTTP_200_OK,
+    summary="[Internal] Confirm the account password",
+    operation_id="verify-password",
+    include_in_schema=False,
+)
+async def verify_password(
+        data: VerifyPasswordRequest,
+        service: AuthService = Depends(get_auth_service),
+        _: None = Depends(require_internal_key),
+):
+    """
+    Confirms a user's password for destructive operations.
+
+    Called by the gateway before DELETE /users/{user_id} and
+    DELETE /users/{user_id}/avatar. The password is never stored
+    or transmitted beyond this service (Argon2id verification only).
+    """
+    return await service.verify_password(data.user_id, data.password)
+
+@router.post(
+    "/internal/deletion-request",
+    response_model=DeletionRequestResponse,
+    status_code=status.HTTP_200_OK,
+    summary="[Internal] Start a GDPR account deletion",
+    operation_id="create-deletion-request",
+    include_in_schema=False,
+)
+async def create_deletion_request(
+        data: CreateDeletionRequestRequest,
+        service: AuthService = Depends(get_auth_service),
+        _: None = Depends(require_internal_key),
+):
+    """
+    Starts a GDPR account deletion for a user.
+
+    Called by the gateway after the password has been confirmed.
+    Sends a confirmation email containing a one-time deletion link.
+    """
+    return await service.create_deletion_request(data.user_id)
+
+@router.post(
+    "/confirm-deletion",
+    response_model=MessageResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Confirm account deletion (GDPR)",
+    operation_id="confirm-deletion",
+)
+async def confirm_deletion(
+        data: ConfirmDeletionRequest,
+        service: AuthService = Depends(get_auth_service),
+):
+    """
+    Permanently deletes an account using the one-time email token.
+
+    The token comes from the deletion confirmation email link.
+    It is HMAC-signed, single-use and expires after 24h.
+    This operation is irreversible.
+    """
+    return await service.confirm_deletion(data.token)
+
+@router.post(
+    "/internal/email-change",
+    response_model=MessageResponse,
+    status_code=status.HTTP_200_OK,
+    summary="[Internal] Start an email address change",
+    operation_id="request-email-change",
+    include_in_schema=False,
+)
+async def request_email_change(
+        data: EmailChangeRequest,
+        service: AuthService = Depends(get_auth_service),
+        _: None = Depends(require_internal_key),
+):
+    """
+    Starts an email address change for a user.
+
+    Called by the gateway after the password has been confirmed.
+    Sends a confirmation email to the NEW address.
+    """
+    return await service.request_email_change(data.user_id, data.new_email)
+
+@router.post(
+    "/confirm-email-change",
+    response_model=MessageResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Confirm email address change",
+    operation_id="confirm-email-change",
+)
+async def confirm_email_change(
+        data: ConfirmEmailChangeRequest,
+        service: AuthService = Depends(get_auth_service),
+):
+    """
+    Applies an email change using the one-time token.
+
+    The token comes from the confirmation email sent to the NEW address.
+    It is HMAC-signed, single-use and expires after 24h.
+    """
+    return await service.confirm_email_change(data.token)

@@ -16,7 +16,7 @@ from app.schemas.token import (
 from app.security.jwt import decode_access_token, generate_access_token, generate_refresh_token
 
 settings = get_settings()
-logger = logging.getLogger("uvicorn.error")
+logger = logging.getLogger("token-service")
 
 class TokenService:
     async def generate(self, data: GenerateTokenRequest) -> TokenPairResponse:
@@ -88,30 +88,10 @@ class TokenService:
         If the token has already expired or is invalid,
         the return is success — it is, in fact, already invalid.
         """
-        # try:
-        #     payload = decode_access_token(data.access_token)
-        # except HTTPException:
-        #     return RevokeTokenResponse(
-        #         message="Token already invalid or expired.",
-        #     )
-        #
-        # jti = payload.get("jti")
-        # exp = payload.get("exp")
-        #
-        # if jti and exp:
-        #     now = datetime.now(timezone.utc)
-        #     exp_dt = datetime.fromtimestamp(exp, tz=timezone.utc)
-        #     ttl = max(0, int((exp_dt - now).total_seconds()))
-        #
-        #     if ttl > 0:
-        #         await blacklist_token(jti=jti, ttl_seconds=ttl)
-        # return RevokeTokenResponse(
-        #     message="Token revoked successfully.",
-        # )
         try:
             payload = decode_access_token(data.access_token)
         except HTTPException:
-            logger.warning("[revoke] Invalid token received")
+            logger.warning("revoke_invalid_token")
             return RevokeTokenResponse(
                 message="Token already invalid or expired.",
             )
@@ -123,12 +103,12 @@ class TokenService:
             now = datetime.now(UTC)
             exp_dt = datetime.fromtimestamp(exp, tz=UTC)
             ttl = max(0, int((exp_dt - now).total_seconds()))
-            logger.info(f"[revoke] jti={jti}, ttl={ttl} seconds")
+            logger.info("revoke_token_blacklisted", extra={"jti": jti, "ttl": ttl})
             if ttl > 0:
                 await blacklist_token(jti=jti, ttl_seconds=ttl)
-                logger.info(f"[revoke] Token blacklisted with TTL {ttl}s")
+                logger.info("revoke_token_blacklist_ok", extra={"jti": jti, "ttl": ttl})
             else:
-                logger.info("[revoke] Token already expired, not blacklisted")
+                logger.info("revoke_token_already_expired", extra={"jti": jti})
         return RevokeTokenResponse(
             message="Token revoked successfully.",
         )

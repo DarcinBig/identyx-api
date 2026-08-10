@@ -32,6 +32,7 @@ class SecurityHeadersMiddleware:
                 headers[b"x-xss-protection"] = b"1; mode=block"
                 headers[b"referrer-policy"] = b"strict-origin-when-cross-origin"
                 headers[b"permissions-policy"] = b"camera=(), microphone=(), geolocation=()"
+                headers[b"strict-transport-security"] = b"max-age=31536000; includeSubDomains"
 
                 # Remove the Server header
                 headers.pop(b"server", None)

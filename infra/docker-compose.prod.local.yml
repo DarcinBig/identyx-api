@@ -1,0 +1,70 @@
+# =============================================================
+# IDENTYX — Local override of the production deployment
+# =============================================================
+# Lets you run the exact production compose on a dev machine
+# before deploying to a VPS.
+#
+# Differences vs docker-compose.prod.yml (prod behavior kept):
+#   1. Build images from source instead of pulling from GHCR
+#      (ghcr.io images are not published yet).
+#   2. Redpanda runs in dev-container mode with 512M so it
+#      fits a dev laptop (prod uses 2048M on a real server).
+#   3. Caddy uses DOMAIN=localhost (internal CA, HTTPS on
+#      https://localhost) instead of a public DNS domain.
+#
+# Run (from infra/):
+#   docker compose -f docker-compose.prod.yml \
+#                  -f docker-compose.prod.local.yml \
+#                  up -d --build
+# =============================================================
+
+services:
+
+  # Build from source (dev images do not exist on GHCR yet)
+  gateway:
+    build:
+      context: ../gateway
+      dockerfile: Dockerfile
+  auth-service:
+    build:
+      context: ../services/auth-services
+      dockerfile: Dockerfile
+  user-service:
+    build:
+      context: ../services/user-services
+      dockerfile: Dockerfile
+  session-service:
+    build:
+      context: ../services/session-services
+      dockerfile: Dockerfile
+  token-service:
+    build:
+      context: ../services/token-services
+      dockerfile: Dockerfile
+  email-service:
+    build:
+      context: ../services/email-services
+      dockerfile: Dockerfile
+
+  # Redpanda — dev-container mode + 512M (fits this laptop).
+  # Prod keeps --memory 2048M without dev-container (real server).
+  redpanda:
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --smp 1
+      - --memory 512M
+      - --mode dev-container
+      - --default-log-level=warn
+
+  # Caddy — HTTPS on https://localhost (internal CA, no DNS needed)
+  caddy:
+    environment:
+      DOMAIN: localhost

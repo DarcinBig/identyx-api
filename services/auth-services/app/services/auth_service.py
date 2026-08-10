@@ -20,10 +20,16 @@ from app.events.types import (
     CHANNEL_AUTH_LOGIN,
     CHANNEL_AUTH_NEW_LOGIN,
     CHANNEL_AUTH_SUSPICIOUS,
+    CHANNEL_USER_DELETED,
+    CHANNEL_USER_DELETION_REQUESTED,
+    CHANNEL_USER_EMAIL_CHANGE_REQUESTED,
     CHANNEL_USER_REGISTERED,
     AuthLoginEvent,
     AuthSuspiciousLoginEvent,
     NewLoginEvent,
+    UserDeletedEvent,
+    UserDeletionRequestedEvent,
+    UserEmailChangeRequestedEvent,
     UserRegisteredEvent,
 )
 from app.repositories.credential_repo import CredentialRepository
@@ -36,11 +42,28 @@ from app.schemas.auth import (
     VerifyEmailResponse,
 )
 from app.security.hashing import hash_password, needs_rehash, verify_password
-from app.security.verification import generate_verification_token, verify_verification_token
+from app.security.verification import (
+    PURPOSE_DELETE_ACCOUNT,
+    PURPOSE_EMAIL_CHANGE,
+    PURPOSE_EMAIL_VERIFICATION,
+    PURPOSE_PASSWORD_RESET,
+    generate_verification_token,
+    verify_verification_token,
+)
 
 settings = get_settings()
 
 logger = logging.getLogger("auth-service")
+
+def _internal_headers() -> dict[str, str]:
+    """Shared secret for inter-service calls (X-Internal-Key)."""
+    if settings.internal_api_key:
+        return {"X-Internal-Key": settings.internal_api_key}
+    return {}
+
+def _internal_client() -> httpx.AsyncClient:
+    """HTTPX client with the internal key header pre-configured."""
+    return httpx.AsyncClient(timeout=10.0, headers=_internal_headers())
 
 class AuthService:
     """
@@ -71,7 +94,7 @@ class AuthService:
             409 if email or username is already in use (forwards the user-service error)
             503 if user-service is unavailable
         """
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _internal_client() as client:
             try:
                 response = await client.post(
                     f"{settings.user_service_url}/users/",
@@ -112,7 +135,7 @@ class AuthService:
             404 if the user does not exist
             503 if the user service is unavailable
         """
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _internal_client() as client:
             try:
                 response = await client.get(
                     f"{settings.user_service_url}/users/internal/by-email",
@@ -140,10 +163,11 @@ class AuthService:
 
     async def _get_user_by_id(self, user_id: str) -> dict:
         """Retrieves a user profile via id using a user service."""
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _internal_client() as client:
             try:
                 response = await client.get(
-                    f"{settings.user_service_url}/users/{user_id}",
+                    f"{settings.user_service_url}/users/internal/by-id",
+                    params={"user_id": user_id},
                 )
             except httpx.ConnectError:
                 raise HTTPException(
@@ -169,7 +193,7 @@ class AuthService:
         Deletes the user profile (best-effort rollback).
         Called if credential storage fails after profile creation.
         """
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _internal_client() as client:
             try:
                 await client.delete(
                     f"{settings.user_service_url}/users/{user_id}",
@@ -188,7 +212,7 @@ class AuthService:
         Stores the verification token in user-service.
         user-service stores only the SHA-256 hash of the raw token.
         """
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _internal_client() as client:
             try:
                 await client.post(
                     f"{settings.user_service_url}/users/internal/verification-token",
@@ -211,7 +235,7 @@ class AuthService:
         Checks the token in DB via user-service.
         Returns {valid: bool, detail: str}.
         """
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _internal_client() as client:
             try:
                 response = await client.post(
                     f"{settings.user_service_url}/users/internal/verify-token",
@@ -236,7 +260,7 @@ class AuthService:
         Marks the token as used AND the email as verified.
         Single call to user-service.
         """
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _internal_client() as client:
             try:
                 response = await client.post(
                     f"{settings.user_service_url}/users/internal/confirm-verification",
@@ -264,7 +288,7 @@ class AuthService:
         Stores the password reset token in user-service.
         user-service stores only the SHA-256 hash of the raw token.
         """
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _internal_client() as client:
             try:
                 await client.post(
                     f"{settings.user_service_url}/users/internal/password-reset-token",
@@ -288,7 +312,7 @@ class AuthService:
         (expiration + is_used).
         Returns {valid: bool, detail: str}.
         """
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _internal_client() as client:
             try:
                 response = await client.post(
                     f"{settings.user_service_url}/users/internal/check-password-reset-token",
@@ -313,7 +337,7 @@ class AuthService:
         Marks the password reset token as used in user-service.
         Called after the password has been changed.
         """
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _internal_client() as client:
             try:
                 response = await client.post(
                     f"{settings.user_service_url}/users/internal/confirm-password-reset",
@@ -329,6 +353,240 @@ class AuthService:
                 })
                 return {"confirmed": False}
 
+    async def _store_deletion_token(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> None:
+        """
+        Stores the account deletion token in user-service.
+        user-service stores only the SHA-256 hash of the raw token.
+        """
+        async with _internal_client() as client:
+            try:
+                await client.post(
+                    f"{settings.user_service_url}/users/internal/deletion-request-token",
+                    json={
+                        "user_id": user_id,
+                        "raw_token": raw_token,
+                    },
+                )
+            except Exception as exc:
+                logger.warning("store_deletion_token_failed", extra={
+                    "error": str(exc)
+                })
+
+    async def _check_deletion_token(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> dict:
+        """
+        Checks the deletion token in DB via user-service
+        (expiration + is_used).
+        Returns {valid: bool, detail: str}.
+        """
+        async with _internal_client() as client:
+            try:
+                response = await client.post(
+                    f"{settings.user_service_url}/users/internal/check-deletion-token",
+                    json={
+                        "user_id": user_id,
+                        "raw_token": raw_token,
+                    },
+                )
+                return response.json()
+            except Exception as exc:
+                logger.warning("check_deletion_token_failed", extra={
+                    "error": str(exc)
+                })
+                return {"valid": False, "detail": "Deletion service unavailable."}
+
+    async def _confirm_deletion(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> dict:
+        """
+        Marks the deletion token as used AND permanently deletes the user.
+        Atomic call to user-service.
+        """
+        async with _internal_client() as client:
+            try:
+                response = await client.post(
+                    f"{settings.user_service_url}/users/internal/confirm-deletion",
+                    json={
+                        "user_id": user_id,
+                        "raw_token": raw_token,
+                    },
+                )
+                return response.json()
+            except Exception as exc:
+                logger.error("confirm_deletion_failed", extra={
+                    "error": str(exc)
+                })
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to confirm account deletion.",
+                )
+
+    async def _publish_deletion_requested(
+        self,
+        user_id: str,
+        email: str,
+        username: str,
+        deletion_token: str,
+    ) -> None:
+        """
+        Publishes user.deletion_requested to Kafka.
+        Email-service sends the account deletion confirmation email.
+        """
+        from app.main import event_publisher
+
+        if not event_publisher:
+            logger.warning(
+                "publish_skipped_no_publisher",
+                extra={"topic": CHANNEL_USER_DELETION_REQUESTED},
+            )
+            return
+
+        event = UserDeletionRequestedEvent(
+            user_id=user_id,
+            email=email,
+            username=username,
+            deletion_token=deletion_token,
+        )
+        await event_publisher.publish(CHANNEL_USER_DELETION_REQUESTED, event)
+
+    async def _publish_user_deleted(
+        self,
+        user_id: str,
+        email: str,
+    ) -> None:
+        """
+        Publishes user.deleted to Kafka.
+        Signals the rest of the platform (email, sessions, audit) that
+        the account has been permanently removed.
+        """
+        from app.main import event_publisher
+
+        if not event_publisher:
+            logger.warning(
+                "publish_skipped_no_publisher",
+                extra={"topic": CHANNEL_USER_DELETED},
+            )
+            return
+
+        event = UserDeletedEvent(user_id=user_id, email=email)
+        await event_publisher.publish(CHANNEL_USER_DELETED, event)
+
+    async def _store_email_change_token(
+        self,
+        user_id: str,
+        raw_token: str,
+        pending_email: str,
+    ) -> None:
+        """
+        Stores the email change request in user-service.
+        user-service stores only the SHA-256 hash of the raw token.
+        """
+        async with _internal_client() as client:
+            try:
+                await client.post(
+                    f"{settings.user_service_url}/users/internal/email-change-token",
+                    json={
+                        "user_id": user_id,
+                        "raw_token": raw_token,
+                        "pending_email": pending_email,
+                    },
+                )
+            except Exception as exc:
+                logger.warning("store_email_change_token_failed", extra={
+                    "error": str(exc)
+                })
+
+    async def _check_email_change_token(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> dict:
+        """
+        Checks the email change token in DB via user-service
+        (expiration + is_used).
+        Returns {valid: bool, detail: str}.
+        """
+        async with _internal_client() as client:
+            try:
+                response = await client.post(
+                    f"{settings.user_service_url}/users/internal/check-email-change-token",
+                    json={
+                        "user_id": user_id,
+                        "raw_token": raw_token,
+                    },
+                )
+                return response.json()
+            except Exception as exc:
+                logger.warning("check_email_change_token_failed", extra={
+                    "error": str(exc)
+                })
+                return {"valid": False, "detail": "Email change service unavailable."}
+
+    async def _confirm_email_change(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> dict:
+        """
+        Marks the email change token as used AND applies the pending email.
+        Atomic call to user-service.
+        """
+        async with _internal_client() as client:
+            try:
+                response = await client.post(
+                    f"{settings.user_service_url}/users/internal/confirm-email-change",
+                    json={
+                        "user_id": user_id,
+                        "raw_token": raw_token,
+                    },
+                )
+                return response.json()
+            except Exception as exc:
+                logger.error("confirm_email_change_failed", extra={
+                    "error": str(exc)
+                })
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to confirm email change.",
+                )
+
+    async def _publish_email_change_requested(
+        self,
+        user_id: str,
+        email: str,
+        username: str,
+        email_change_token: str,
+    ) -> None:
+        """
+        Publishes user.email_change_requested to Kafka.
+        Email-service sends the confirmation email to the NEW address.
+        """
+        from app.main import event_publisher
+
+        if not event_publisher:
+            logger.warning(
+                "publish_skipped_no_publisher",
+                extra={"topic": CHANNEL_USER_EMAIL_CHANGE_REQUESTED},
+            )
+            return
+
+        event = UserEmailChangeRequestedEvent(
+            user_id=user_id,
+            email=email,
+            username=username,
+            email_change_token=email_change_token,
+        )
+        await event_publisher.publish(CHANNEL_USER_EMAIL_CHANGE_REQUESTED, event)
+
     async def _generate_and_store_reset_token(self, user_id: str) -> str:
         """
         Generates an HMAC-signed one-time reset token and stores its
@@ -337,7 +595,7 @@ class AuthService:
         The raw token is returned so it can be embedded in the security
         email link. It can only be used once and expires after 1 hour.
         """
-        raw_token = generate_verification_token(user_id)
+        raw_token = generate_verification_token(user_id, purpose=PURPOSE_PASSWORD_RESET)
         await self._store_password_reset_token(
             user_id=user_id,
             raw_token=raw_token,
@@ -354,7 +612,7 @@ class AuthService:
         Reasons:
             503 if token-service is unavailable
         """
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _internal_client() as client:
             try:
                 response = await client.post(
                     f"{settings.token_service_url}/tokens/generate",
@@ -385,7 +643,7 @@ class AuthService:
             logger.warning("revoke_access_token_empty")
             return
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _internal_client() as client:
             try:
                 response = await client.post(
                     f"{settings.token_service_url}/tokens/revoke",
@@ -417,7 +675,7 @@ class AuthService:
             days=settings.refresh_token_expires_days
         )
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _internal_client() as client:
             try:
                 await client.post(
                     f"{settings.session_service_url}/sessions/create",
@@ -441,7 +699,7 @@ class AuthService:
 
     async def _revoke_session(self, refresh_token: str) -> None:
         """Revokes a session in session-service"""
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _internal_client() as client:
             try:
                 await client.post(
                     f"{settings.session_service_url}/sessions/revoke",
@@ -455,7 +713,7 @@ class AuthService:
         Revokes all active sessions for a user in session-service.
         Called after a password reset so every device is disconnected.
         """
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _internal_client() as client:
             try:
                 await client.post(
                     f"{settings.session_service_url}/sessions/internal/revoke-all",
@@ -469,7 +727,7 @@ class AuthService:
             refresh_token: str,
     ) -> dict:
         """Validates a refresh token via session-service."""
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _internal_client() as client:
             try:
                 response = await client.post(
                     f"{settings.session_service_url}/sessions/validate",
@@ -491,7 +749,7 @@ class AuthService:
         """Performs the refresh token rotation in session-service."""
         new_expires_at = datetime.now(UTC) + timedelta(days=settings.refresh_token_expires_days)
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _internal_client() as client:
             try:
                 await client.post(
                     f"{settings.session_service_url}/sessions/rotate",
@@ -565,7 +823,7 @@ class AuthService:
         )
 
         # Step 6 — Generate the HMAC verification token
-        verification_token = generate_verification_token(user_id)
+        verification_token = generate_verification_token(user_id, purpose=PURPOSE_EMAIL_VERIFICATION)
 
         # Step 7 — Store the verification token in user-service
         await self._store_verification_token(
@@ -966,7 +1224,7 @@ class AuthService:
             4. Return VerifyEmailResponse
         """
         # Step 1 — Verify the HMAC signature
-        is_valid, user_id = verify_verification_token(raw_token)
+        is_valid, user_id = verify_verification_token(raw_token, purpose=PURPOSE_EMAIL_VERIFICATION)
         if not is_valid or not user_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1001,6 +1259,56 @@ class AuthService:
             email=result.get("email", ""),
             is_verified=True,
         )
+
+    # --- Resend verification ----------------------------------------------------------------
+
+    async def resend_verification(self, email: str) -> MessageResponse:
+        """
+        Re-sends the verification email.
+
+        Flow:
+            1. Fetch the user by email (404 → generic 401 to avoid enumeration)
+            2. If already verified → return without resending
+            3. Generate a fresh HMAC token, store it in user-service
+            4. Publish user.registered (email-service sends the email)
+
+        The response is always generic so an attacker cannot
+        distinguish between an existing and a non-existing email.
+        """
+        # Step 1 — Fetch the user (unknown email → generic response,
+        # indistinguishable from the success path to prevent enumeration)
+        try:
+            user_profile = await self._get_user_by_email(email)
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+                return MessageResponse(
+                    message="If the account exists, a verification email has been sent."
+                )
+            raise
+        user_id = user_profile["id"]
+
+        # Step 2 — Already verified, nothing to do
+        if user_profile["is_verified"]:
+            return MessageResponse(message="If the account exists, a verification email has been sent.")
+
+        # Step 3 — New one-time token (24h)
+        verification_token = generate_verification_token(user_id, purpose=PURPOSE_EMAIL_VERIFICATION)
+        await self._store_verification_token(
+            user_id=user_id,
+            raw_token=verification_token,
+        )
+
+        # Step 4 — Publish the event (email-service sends the email)
+        await self._publish_user_registered(
+            user_id=user_id,
+            email=user_profile["email"],
+            username=user_profile["username"],
+            verification_token=verification_token,
+        )
+
+        logger.info("verification_email_resent", extra={"user_id": user_id})
+
+        return MessageResponse(message="If the account exists, a verification email has been sent.")
 
     # --- Reset password --------------------------------------------------------------------
 
@@ -1067,3 +1375,270 @@ class AuthService:
         logger.info("password_reset_completed", extra={"user_id": user_id})
 
         return MessageResponse(message="Password updated successfully.")
+
+    # --- Password confirmation (destructive actions) ----------------------------------------
+
+    async def verify_password(self, user_id: str, password: str) -> dict:
+        """
+        Confirms that `password` matches the stored Argon2id hash.
+
+        Used by the gateway before DELETE /users/{user_id} and
+        DELETE /users/{user_id}/avatar so a stolen session cannot
+        destroy an account without also knowing its password.
+
+        Fails closed: any error (unknown user, unknown credential,
+        wrong password) returns valid=False — never an exception,
+        so the endpoint is safe to call from the gateway.
+        """
+        try:
+            credential = await self.repo.get_by_user_id(user_id)
+            if not credential:
+                return {"valid": False}
+            valid = verify_password(password, credential.hashed_password)
+            if valid and needs_rehash(credential.hashed_password):
+                await self.repo.update_password(
+                    user_id=user_id,
+                    new_hashed_password=hash_password(password),
+                )
+            return {"valid": valid}
+        except Exception as exc:
+            logger.error("verify_password_failed", extra={"error": str(exc)})
+            return {"valid": False}
+
+    # --- GDPR: account deletion ---------------------------------------------------------------
+
+    async def create_deletion_request(self, user_id: str) -> MessageResponse:
+        """
+        Starts a GDPR account deletion.
+
+        Flow:
+            1. Fetch the user profile via user-service
+            2. Generate an HMAC-signed deletion token (purpose=delete_account)
+            3. Store its SHA-256 hash in user-service (24h expiry)
+            4. Publish user.deletion_requested
+               (email-service sends the confirmation email with the link)
+
+        The irreversible deletion only happens once the token from the
+        email is confirmed (confirm_deletion). This proves the account
+        owner controls the email address, satisfying the GDPR requirement
+        of an explicit, informed confirmation before erasure.
+
+        The password must already have been verified by the gateway
+        before this endpoint is called.
+        """
+        # Step 1 — Fetch the profile (404 if it no longer exists)
+        user_profile = await self._get_user_by_id(user_id)
+
+        # Step 2 — Generate the one-time token (24h)
+        deletion_token = generate_verification_token(
+            user_id,
+            purpose=PURPOSE_DELETE_ACCOUNT,
+        )
+
+        # Step 3 — Store the SHA-256 hash in user-service
+        await self._store_deletion_token(
+            user_id=user_id,
+            raw_token=deletion_token,
+        )
+
+        # Step 4 — Publish the event (email-service sends the email)
+        await self._publish_deletion_requested(
+            user_id=user_id,
+            email=user_profile["email"],
+            username=user_profile["username"],
+            deletion_token=deletion_token,
+        )
+
+        logger.info("deletion_request_created", extra={"user_id": user_id})
+
+        return MessageResponse(
+            message="A deletion confirmation link has been sent to your email."
+        )
+
+    async def confirm_deletion(self, raw_token: str) -> MessageResponse:
+        """
+        Permanently deletes an account after email-token confirmation.
+
+        Flow:
+            1. Verify the HMAC signature (purpose=delete_account) → user_id
+            2. Verify the token in user-service (expiration + is_used)
+            3. Mark the token as used AND delete the profile (atomic)
+            4. Delete the credential in auth-service's database
+            5. Revoke all sessions (every device is disconnected)
+            6. Publish user.deleted
+
+        Security notes:
+            - The token is HMAC-signed and stored hashed (SHA-256) in DB
+            - It is single-use and expires after 24h
+            - This operation is irreversible
+        """
+        # Step 1 — Verify the HMAC signature
+        is_valid, user_id = verify_verification_token(
+            raw_token,
+            purpose=PURPOSE_DELETE_ACCOUNT,
+        )
+        if not is_valid or not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired deletion token.",
+            )
+
+        # Step 2 — Verify the token in DB via user-service
+        check_result = await self._check_deletion_token(
+            user_id=user_id,
+            raw_token=raw_token,
+        )
+        if not check_result.get("valid"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired deletion token.",
+            )
+
+        # Step 3 — Mark used + delete the profile (atomic)
+        result = await self._confirm_deletion(
+            user_id=user_id,
+            raw_token=raw_token,
+        )
+        email = result.get("email", "")
+
+        # Step 4 — Delete the credential
+        try:
+            await self.repo.delete_by_user_id(user_id)
+        except Exception as exc:
+            logger.warning("delete_credential_failed", extra={
+                "user_id": user_id,
+                "error": str(exc),
+            })
+
+        # Step 5 — Revoke all sessions (disconnect every device)
+        await self._revoke_all_sessions(user_id)
+
+        # Step 6 — Publish user.deleted
+        await self._publish_user_deleted(user_id=user_id, email=email)
+
+        logger.info("account_deleted", extra={"user_id": user_id})
+
+        return MessageResponse(message="Account permanently deleted.")
+
+    # --- Email change ------------------------------------------------------------------------
+
+    async def request_email_change(self, user_id: str, new_email: str) -> MessageResponse:
+        """
+        Starts an email address change.
+
+        Flow:
+            1. Fetch the user profile via user-service
+            2. Reject if new_email == current email
+            3. Check that new_email is not already registered
+            4. Generate an HMAC-signed token (purpose=email_change)
+            5. Store its SHA-256 hash + pending_email in user-service (24h)
+            6. Publish user.email_change_requested
+               (email-service sends the confirmation email to the NEW address)
+
+        The email is only replaced once the token from the NEW address is
+        confirmed (confirm_email_change) — this re-verifies ownership of
+        the new email before it becomes active.
+
+        The password must already have been verified by the gateway
+        before this endpoint is called.
+        """
+        # Step 1 — Fetch the profile (404 if it no longer exists)
+        user_profile = await self._get_user_by_id(user_id)
+
+        # Step 2 — Reject if the email is unchanged
+        if new_email.lower() == user_profile["email"].lower():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="New email must be different from the current email.",
+            )
+
+        # Step 3 — Check availability (200 → registered → 409)
+        try:
+            await self._get_user_by_email(new_email)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email already registered.",
+            )
+        except HTTPException as exc:
+            if exc.status_code != status.HTTP_401_UNAUTHORIZED:
+                raise
+
+        # Step 4 — Generate the one-time token (24h)
+        email_change_token = generate_verification_token(
+            user_id,
+            purpose=PURPOSE_EMAIL_CHANGE,
+        )
+
+        # Step 5 — Store the SHA-256 hash + pending_email in user-service
+        await self._store_email_change_token(
+            user_id=user_id,
+            raw_token=email_change_token,
+            pending_email=new_email,
+        )
+
+        # Step 6 — Publish the event (email-service sends the email)
+        await self._publish_email_change_requested(
+            user_id=user_id,
+            email=new_email,
+            username=user_profile["username"],
+            email_change_token=email_change_token,
+        )
+
+        logger.info("email_change_requested", extra={
+            "user_id": user_id,
+            "new_email": new_email,
+        })
+
+        return MessageResponse(
+            message="A confirmation link has been sent to your new email address."
+        )
+
+    async def confirm_email_change(self, raw_token: str) -> MessageResponse:
+        """
+        Applies an email change after token confirmation.
+
+        Flow:
+            1. Verify the HMAC signature (purpose=email_change) → user_id
+            2. Verify the token in user-service (expiration + is_used)
+            3. Mark the token as used AND apply the pending email (atomic)
+            4. Return the new email
+
+        Security notes:
+            - The token is HMAC-signed and stored hashed (SHA-256) in DB
+            - It is single-use and expires after 24h
+            - Ownership of the new email is proven by the confirmation link
+        """
+        # Step 1 — Verify the HMAC signature
+        is_valid, user_id = verify_verification_token(
+            raw_token,
+            purpose=PURPOSE_EMAIL_CHANGE,
+        )
+        if not is_valid or not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired email change token.",
+            )
+
+        # Step 2 — Verify the token in DB via user-service
+        check_result = await self._check_email_change_token(
+            user_id=user_id,
+            raw_token=raw_token,
+        )
+        if not check_result.get("valid"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired email change token.",
+            )
+
+        # Step 3 — Mark used + apply the pending email (atomic)
+        result = await self._confirm_email_change(
+            user_id=user_id,
+            raw_token=raw_token,
+        )
+
+        logger.info("email_change_confirmed", extra={
+            "user_id": user_id,
+            "new_email": result.get("email", ""),
+        })
+
+        return MessageResponse(message="Email address updated successfully.")

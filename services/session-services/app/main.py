@@ -12,8 +12,11 @@ from app.core.config import get_settings
 from app.core.logging.config import setup_logging
 from app.db.session import engine
 from app.metrics.prometheus import MetricsMiddleware, metrics_response
+from app.observability.tracing import instrument_fastapi, setup_tracing
 
 setup_logging(service_name="session-service")
+
+setup_tracing(service_name="identyx-session")
 
 logger = logging.getLogger("session-service")
 
@@ -34,30 +37,34 @@ async def lifespan(app: FastAPI):
         sync_engine = create_engine(sync_url)
 
         with sync_engine.connect() as conn:
-            has_version = conn.execute(
-                text(
-                    "SELECT 1 FROM information_schema.tables "
-                    "WHERE table_name = 'alembic_version'"
-                )
-            ).fetchone() is not None
+            conn.execute(text("SELECT pg_advisory_lock(71276345)"))
+            try:
+                has_version = conn.execute(
+                    text(
+                        "SELECT 1 FROM information_schema.tables "
+                        "WHERE table_name = 'alembic_version'"
+                    )
+                ).fetchone() is not None
 
-            has_tables = conn.execute(
-                text(
-                    "SELECT 1 FROM information_schema.tables "
-                    "WHERE table_schema = 'public' "
-                    "AND table_name != 'alembic_version' LIMIT 1"
-                )
-            ).fetchone() is not None
+                has_tables = conn.execute(
+                    text(
+                        "SELECT 1 FROM information_schema.tables "
+                        "WHERE table_schema = 'public' "
+                        "AND table_name != 'alembic_version' LIMIT 1"
+                    )
+                ).fetchone() is not None
+
+                if has_tables and not has_version:
+                    command.stamp(alembic_cfg, "head")
+                    logger.info("alembic_stamped_existing_db")
+                    return
+
+                command.upgrade(alembic_cfg, "head")
+                logger.info("alembic_migrations_applied")
+            finally:
+                conn.execute(text("SELECT pg_advisory_unlock(71276345)"))
 
         sync_engine.dispose()
-
-        if has_tables and not has_version:
-            command.stamp(alembic_cfg, "head")
-            logger.info("alembic_stamped_existing_db")
-            return
-
-        command.upgrade(alembic_cfg, "head")
-        logger.info("alembic_migrations_applied")
 
     await asyncio.to_thread(_run_alembic_upgrade)
 
@@ -68,7 +75,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Identyx Session Service",
     description="Session and refresh tokens",
-    version="0.1.5",
+    version="1.0.0",
     lifespan=lifespan,
     redirect_slashes=False,
     docs_url="/docs" if settings.debug else None,
@@ -78,6 +85,9 @@ app = FastAPI(
 app.add_middleware(MetricsMiddleware, service_name="session-service")
 
 app.include_router(sessions_router)
+
+# OpenTelemetry auto-instrumentation (no-op when tracing is disabled)
+instrument_fastapi(app)
 
 @app.get("/health", tags=["observability"], operation_id="check")
 async def health_check():
@@ -98,7 +108,7 @@ async def health_check():
     return {
         "service": "session-service",
         "status": overall,
-        "version": "0.1.5",
+        "version": "1.0.0",
         "uptime_seconds": uptime_seconds,
         "dependencies": {
             "database": db_status,

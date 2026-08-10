@@ -1,7 +1,7 @@
 [project]
 name = "email-services"
-version = "0.1.5"
-description = "Identyx — Email Service"
+version = "1.0.0"
+description = "Identyx — Email service: Kafka-driven transactional emails (verification, security and new-login alerts)"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
@@ -9,6 +9,11 @@ dependencies = [
     "aiosmtplib>=5.1.0",
     "fastapi[standard]>=0.136.1",
     "jinja2>=3.1.6",
+    "opentelemetry-api>=1.30.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.30.0",
+    "opentelemetry-instrumentation-fastapi>=0.51b0",
+    "opentelemetry-instrumentation-httpx>=0.51b0",
+    "opentelemetry-sdk>=1.30.0",
     "prometheus-client>=0.25.0",
     "python-json-logger>=4.1.0",
     "redis>=8.0.0",
@@ -18,8 +23,14 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
     "ruff>=0.15.20",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100

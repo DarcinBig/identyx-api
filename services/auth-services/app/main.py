@@ -11,8 +11,11 @@ from app.core.logging.config import setup_logging
 from app.db.session import engine
 from app.events.publisher import EventPublisher
 from app.metrics.prometheus import MetricsMiddleware, metrics_response
+from app.observability.tracing import instrument_fastapi, setup_tracing
 
 setup_logging(service_name="auth-service")
+
+setup_tracing(service_name="identyx-auth")
 
 logger = logging.getLogger("auth-service")
 
@@ -25,10 +28,22 @@ event_publisher: EventPublisher | None = None
 
 def _run_alembic_upgrade() -> None:
     from alembic.config import Config
+    from sqlalchemy import create_engine, text
 
     from alembic import command
+
     alembic_cfg = Config("alembic.ini")
-    command.upgrade(alembic_cfg, "head")
+    sync_url = settings.database_url.replace("postgresql://", "postgresql+psycopg://")
+    sync_engine = create_engine(sync_url)
+
+    with sync_engine.connect() as conn:
+        conn.execute(text("SELECT pg_advisory_lock(71276345)"))
+        try:
+            command.upgrade(alembic_cfg, "head")
+        finally:
+            conn.execute(text("SELECT pg_advisory_unlock(71276345)"))
+
+    sync_engine.dispose()
 
 
 @asynccontextmanager
@@ -67,7 +82,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Identyx Auth Service",
-    version="0.1.5",
+    version="1.0.0",
     lifespan=lifespan,
     redirect_slashes=False,
     docs_url="/docs" if settings.debug else None,
@@ -78,6 +93,9 @@ app = FastAPI(
 app.add_middleware(MetricsMiddleware, service_name="auth-service")
 
 app.include_router(auth_router)
+
+# OpenTelemetry auto-instrumentation (no-op when tracing is disabled)
+instrument_fastapi(app)
 
 @app.get("/health", tags=["observability"])
 async def health_check():
@@ -100,7 +118,7 @@ async def health_check():
     return {
         "service": "auth-service",
         "status": overall,
-        "version": "0.1.5",
+        "version": "1.0.0",
         "uptime_seconds": uptime_seconds,
         "dependencies": {
             "database": db_status,
