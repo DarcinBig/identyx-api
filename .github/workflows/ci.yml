@@ -84,19 +84,19 @@ jobs:
 
       - name: Start the full stack
         run: |
-          docker compose -f infra/docker-compose.yml up -d --build
-          docker compose -f infra/docker-compose.yml ps
+          docker compose --env-file .env -f infra/docker-compose.yml up -d --build
+          docker compose --env-file .env -f infra/docker-compose.yml ps
 
       - name: Run E2E suite (pytest through the gateway)
         run: uv run pytest tests/e2e -v --tb=short
 
       - name: Collect stack logs on failure
         if: failure()
-        run: docker compose -f infra/docker-compose.yml logs --tail=200
+        run: docker compose --env-file .env -f infra/docker-compose.yml logs --tail=200
 
       - name: Tear down
         if: always()
-        run: docker compose -f infra/docker-compose.yml down -v
+        run: docker compose --env-file .env -f infra/docker-compose.yml down -v
 
   build-images:
     runs-on: ubuntu-latest
