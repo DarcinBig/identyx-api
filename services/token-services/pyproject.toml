@@ -1,12 +1,17 @@
 [project]
 name = "token-services"
-version = "0.1.5"
-description = "Identyx — Token Service"
+version = "1.0.0"
+description = "Identyx — Token service: JWT generation, verification and blacklisting"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "fakeredis>=2.36.2",
     "fastapi[standard]>=0.136.1",
+    "opentelemetry-api>=1.30.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.30.0",
+    "opentelemetry-instrumentation-fastapi>=0.51b0",
+    "opentelemetry-instrumentation-httpx>=0.51b0",
+    "opentelemetry-sdk>=1.30.0",
     "prometheus-client>=0.25.0",
     "python-jose[cryptography]>=3.5.0",
     "python-json-logger>=4.1.0",

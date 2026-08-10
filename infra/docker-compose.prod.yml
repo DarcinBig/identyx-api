@@ -1,23 +1,92 @@
-# Usage (pull pre-built images):
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# =============================================================
+# IDENTYX — Production deployment (standalone)
+# =============================================================
+# Single-node deployment on a VPS. HTTPS is terminated by Caddy
+# (automatic Let's Encrypt certificates, ports 80/443 only).
 #
-# Usage (build locally):
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml build
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Deploy:
+#   1. Copy ../.env.production.example to ../.env and fill real values
+#      (all secrets MUST be regenerated with openssl rand).
+#   2. IMAGE_TAG=vX.Y.Z docker compose -f docker-compose.prod.yml pull
+#   3. IMAGE_TAG=vX.Y.Z docker compose -f docker-compose.prod.yml up -d
 #
-# Override the image tag with IMAGE_TAG env var (default: latest):
-#   IMAGE_TAG=v0.1.5 docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+# The DOMAIN env var (used by Caddy + APP_BASE_URL) must match the
+# DNS A record pointing at this host (e.g. api.identyx.io).
+#
+# Security notes:
+#   - Only Caddy is reachable from the host network (ports 80/443).
+#   - All services (gateway, DB, Redis, Redpanda, Prometheus) stay on
+#     the internal `identyx-network` — no host ports exposed.
+#   - Redpanda runs without --mode dev-container and without external
+#     listeners. No Redpanda Console is deployed.
+#   - Swagger (/docs, /openapi.json) is disabled when
+#     ENVIRONMENT=production (see gateway).
+# =============================================================
 
 services:
 
+  # ─────────────────────────────────────────────
+  # CADDY — Reverse proxy + automatic HTTPS
+  # ─────────────────────────────────────────────
+  caddy:
+    image: caddy:2.9-alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:-api.identyx.io}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - identyx-network
+    depends_on:
+      gateway:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─────────────────────────────────────────────
+  # GATEWAY — Single entry point (internal only)
+  # ─────────────────────────────────────────────
   gateway:
     image: ghcr.io/darcinbig/identyx-gateway:${IMAGE_TAG:-latest}
-    build:
-      context: ../gateway
-      dockerfile: Dockerfile
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100", "--workers", "2"]
     restart: always
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100", "--workers", "2", "--no-server-header"]
+    env_file: ../.env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      USER_SERVICE_URL: http://user-service:8001
+      AUTH_SERVICE_URL: http://auth-service:8002
+      TOKEN_SERVICE_URL: http://token-service:8003
+      SESSION_SERVICE_URL: http://session-service:8004
+      EMAIL_SERVICE_URL: http://email-service:8005
+      RATE_LIMIT_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/2"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      session-service:
+        condition: service_healthy
+      token-service:
+        condition: service_healthy
+      email-service:
+        condition: service_healthy
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -29,13 +98,39 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ─────────────────────────────────────────────
+  # AUTH SERVICE — Register / Login / Logout
+  # ─────────────────────────────────────────────
   auth-service:
     image: ghcr.io/darcinbig/identyx-auth-service:${IMAGE_TAG:-latest}
-    build:
-      context: ../services/auth-services
-      dockerfile: Dockerfile
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "2"]
     restart: always
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "2", "--no-server-header"]
+    env_file: ../.env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      POSTGRES_HOST: postgres-auth
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: identyx_auth
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      BRUTE_FORCE_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/2
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -47,13 +142,32 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ─────────────────────────────────────────────
+  # USER SERVICE — User profiles
+  # ─────────────────────────────────────────────
   user-service:
     image: ghcr.io/darcinbig/identyx-user-service:${IMAGE_TAG:-latest}
-    build:
-      context: ../services/user-services
-      dockerfile: Dockerfile
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2"]
     restart: always
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2", "--no-server-header"]
+    env_file: ../.env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      POSTGRES_HOST: postgres-users
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: identyx_users
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    depends_on:
+      postgres-users:
+        condition: service_healthy
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -65,31 +179,35 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  token-service:
-    image: ghcr.io/darcinbig/identyx-token-service:${IMAGE_TAG:-latest}
-    build:
-      context: ../services/token-services
-      dockerfile: Dockerfile
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8003", "--workers", "2"]
-    restart: always
-    deploy:
-      resources:
-        limits:
-          cpus: "0.3"
-          memory: 128M
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
+  # ─────────────────────────────────────────────
+  # SESSION SERVICE — Sessions and refresh tokens
+  # ─────────────────────────────────────────────
   session-service:
     image: ghcr.io/darcinbig/identyx-session-service:${IMAGE_TAG:-latest}
-    build:
-      context: ../services/session-services
-      dockerfile: Dockerfile
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004", "--workers", "2"]
     restart: always
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004", "--workers", "2", "--no-server-header"]
+    env_file: ../.env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      POSTGRES_HOST: postgres-sessions
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: identyx_sessions
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/${REDIS_DB}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    depends_on:
+      postgres-sessions:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -101,13 +219,29 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  email-service:
-    image: ghcr.io/darcinbig/identyx-email-service:${IMAGE_TAG:-latest}
-    build:
-      context: ../services/email-services
-      dockerfile: Dockerfile
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8005", "--workers", "1"]
+  # ─────────────────────────────────────────────
+  # TOKEN SERVICE — JWT generation / validation
+  # ─────────────────────────────────────────────
+  token-service:
+    image: ghcr.io/darcinbig/identyx-token-service:${IMAGE_TAG:-latest}
     restart: always
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8003", "--workers", "2", "--no-server-header"]
+    env_file: ../.env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/${REDIS_DB}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -118,3 +252,259 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # ─────────────────────────────────────────────
+  # EMAIL SERVICE — Sending emails (single worker:
+  # the Kafka consumer group must not be split)
+  # ─────────────────────────────────────────────
+  email-service:
+    image: ghcr.io/darcinbig/identyx-email-service:${IMAGE_TAG:-latest}
+    restart: always
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8005", "--workers", "1", "--no-server-header"]
+    stop_grace_period: 30s
+    env_file: ../.env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      APP_BASE_URL: ${APP_BASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+    depends_on:
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─────────────────────────────────────────────
+  # PROMETHEUS — Metrics (internal only)
+  # ─────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    restart: always
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheusdata:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    networks:
+      - identyx-network
+
+  # ─────────────────────────────────────────────
+  # GRAFANA — Dashboards (auto-provisioned)
+  # ─────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.2.2
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_started
+    networks:
+      - identyx-network
+
+  # ─────────────────────────────────────────────
+  # TEMPO — Distributed traces (OTLP)
+  # ─────────────────────────────────────────────
+  tempo:
+    image: grafana/tempo:2.6.1
+    restart: always
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "3200:3200"
+    volumes:
+      - ./tempo/tempo.yml:/etc/tempo/tempo.yml
+      - tempodata:/var/tempo
+    command:
+      - "-config.file=/etc/tempo/tempo.yml"
+    networks:
+      - identyx-network
+
+  # ─────────────────────────────────────────────
+  # DATABASES — One instance per service
+  # ─────────────────────────────────────────────
+  postgres-auth:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: identyx
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: identyx_auth
+    volumes:
+      - pgdata-auth:/var/lib/postgresql/data
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identyx -d identyx_auth"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  postgres-users:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: identyx
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: identyx_users
+    volumes:
+      - pgdata-users:/var/lib/postgresql/data
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identyx -d identyx_users"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  postgres-sessions:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: identyx
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: identyx_sessions
+    volumes:
+      - pgdata-sessions:/var/lib/postgresql/data
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identyx -d identyx_sessions"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─────────────────────────────────────────────
+  # REDIS — Cache, sessions, rate limiting
+  # ─────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command:
+      - sh
+      - -c
+      - 'exec redis-server /usr/local/etc/redis/redis.conf --requirepass "$$REDIS_PASSWORD"'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
+      - redisdata:/data
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD-SHELL", 'redis-cli -a "$$REDIS_PASSWORD" ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─────────────────────────────────────────────
+  # REDPANDA — Kafka-compatible message broker
+  # Production mode: internal listeners only, no
+  # dev-container flag, no host ports, no Console.
+  # ─────────────────────────────────────────────
+  redpanda:
+    image: redpandadata/redpanda:v24.1.1
+    restart: always
+    stop_grace_period: 60s
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:9092
+      - --advertise-kafka-addr internal://redpanda:9092
+      - --pandaproxy-addr internal://0.0.0.0:8082
+      - --advertise-pandaproxy-addr internal://redpanda:8082
+      - --schema-registry-addr internal://0.0.0.0:8081
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --smp 1
+      - --memory 2048M
+      - --overprovisioned
+      - --default-log-level=warn
+    volumes:
+      - redpandadata:/var/lib/redpanda/data
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ─────────────────────────────────────────────
+# VOLUMES persistent
+# ─────────────────────────────────────────────
+volumes:
+  pgdata-auth:
+  pgdata-users:
+  pgdata-sessions:
+  redisdata:
+  prometheusdata:
+  grafanadata:
+  tempodata:
+  redpandadata:
+  caddy_data:
+  caddy_config:
+
+# ─────────────────────────────────────────────
+# NETWORK internal insulated
+# ─────────────────────────────────────────────
+networks:
+  identyx-network:
+    driver: bridge

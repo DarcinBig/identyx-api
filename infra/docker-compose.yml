@@ -9,7 +9,7 @@ services:
     build:
       context: ../gateway
       dockerfile: Dockerfile
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100", "--reload"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100", "--reload", "--no-server-header"]
     container_name: identyx-gateway
     ports:
       - "8100:8100"
@@ -53,10 +53,7 @@ services:
     build:
       context: ../services/auth-services
       dockerfile: Dockerfile
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--reload"]
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--reload", "--no-server-header"]
     container_name: identyx-auth
 #    ports:
 #      - "8002:8002"
@@ -71,6 +68,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       BRUTE_FORCE_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/2
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
     depends_on:
       postgres-auth:
         condition: service_healthy
@@ -95,10 +93,7 @@ services:
     build:
       context: ../services/user-services
       dockerfile: Dockerfile
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload", "--no-server-header"]
     container_name: identyx-users
 #    ports:
 #      - "8001:8001"
@@ -110,6 +105,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: identyx_users
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
     depends_on:
       postgres-users:
         condition: service_healthy
@@ -130,10 +126,7 @@ services:
     build:
       context: ../services/session-services
       dockerfile: Dockerfile
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004", "--reload"]
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004", "--reload", "--no-server-header"]
     container_name: identyx-sessions
 #    ports:
 #      - "8004:8004"
@@ -146,6 +139,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: identyx_sessions
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/${REDIS_DB}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
     depends_on:
       postgres-sessions:
         condition: service_healthy
@@ -168,10 +162,7 @@ services:
     build:
       context: ../services/token-services
       dockerfile: Dockerfile
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8003", "--reload"]
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8003", "--reload", "--no-server-header"]
     container_name: identyx-tokens
 #    ports:
 #      - "8003:8003"
@@ -179,6 +170,7 @@ services:
     environment:
       PYTHONUNBUFFERED: "1"
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/${REDIS_DB}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
     depends_on:
       redis:
         condition: service_healthy
@@ -199,10 +191,7 @@ services:
     build:
       context: ../services/email-services
       dockerfile: Dockerfile
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8005", "--reload"]
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8005", "--reload", "--no-server-header"]
     container_name: identyx-emails
 #    ports:
 #      - "8005:8005"
@@ -244,6 +233,50 @@ services:
       - "--storage.tsdb.path=/prometheus"
       - "--web.console.libraries=/usr/share/prometheus/console_libraries"
       - "--web.console.templates=/usr/share/prometheus/consoles"
+    networks:
+      - identyx-network
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # GRAFANA — Dashboards (auto-provisioned)
+  # ─────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: identyx-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_started
+    networks:
+      - identyx-network
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # TEMPO — Distributed traces (OTLP)
+  # ─────────────────────────────────────────────
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: identyx-tempo
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "3200:3200"
+    volumes:
+      - ./tempo/tempo.yml:/etc/tempo/tempo.yml
+      - tempodata:/var/tempo
+    command:
+      - "-config.file=/etc/tempo/tempo.yml"
     networks:
       - identyx-network
     restart: unless-stopped
@@ -311,7 +344,12 @@ services:
   redis:
     image: redis:7-alpine
     container_name: identyx-redis
-    command: redis-server /usr/local/etc/redis/redis.conf
+    command:
+      - sh
+      - -c
+      - 'exec redis-server /usr/local/etc/redis/redis.conf --requirepass "$$REDIS_PASSWORD"'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     volumes:
       - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
       - redisdata:/data
@@ -320,7 +358,7 @@ services:
     networks:
       - identyx-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", 'redis-cli -a "$$REDIS_PASSWORD" ping | grep -q PONG']
       interval: 5s
       timeout: 3s
       retries: 5
@@ -388,6 +426,8 @@ volumes:
   pgdata-sessions:
   redisdata:
   prometheusdata:
+  grafanadata:
+  tempodata:
   redpandadata:
 
 # ─────────────────────────────────────────────

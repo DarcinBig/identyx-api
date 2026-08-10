@@ -89,7 +89,7 @@ class UserResponse(BaseModel):
     username: str
     is_active: bool
     is_verified: bool
-    avatar_url: str             # never None on the client side
+    avatar_url: str | None      # None in DB = default avatar resolved on the client side
     avatar_provider: str
     created_at: datetime
     updated_at: datetime
@@ -206,5 +206,84 @@ class ConfirmPasswordResetRequest(BaseModel):
 
 class ConfirmPasswordResetResponse(BaseModel):
     """Result of the password reset confirmation."""
+    email: str
+    confirmed: bool
+
+class StoreDeletionRequestTokenRequest(BaseModel):
+    """
+    Stores an account deletion confirmation token in DB.
+    Called by auth-service when the owner requests a GDPR deletion.
+    user-service stores only the SHA-256 hash of the raw token.
+    """
+    user_id: str
+    raw_token: str
+
+
+class CheckDeletionRequestTokenRequest(BaseModel):
+    """
+    Checks a deletion confirmation token in DB (expiration + is_used).
+    Called by auth-service during account deletion confirmation.
+    """
+    user_id: str
+    raw_token: str
+
+
+class CheckDeletionRequestTokenResponse(BaseModel):
+    """Result of the DB verification of a deletion request token."""
+    valid: bool
+    detail: str = ""
+
+
+class ConfirmDeletionRequest(BaseModel):
+    """
+    Marks the deletion token as used AND deletes the user.
+    Atomic call — both operations happen in a single request.
+    """
+    user_id: str
+    raw_token: str
+
+
+class ConfirmDeletionResponse(BaseModel):
+    """Result of the deletion confirmation."""
+    email: str
+    deleted: bool
+
+class StoreEmailChangeTokenRequest(BaseModel):
+    """
+    Stores an email change request in DB.
+    Called by auth-service when the owner asks to change their email.
+    user-service stores only the SHA-256 hash of the raw token.
+    """
+    user_id: str
+    raw_token: str
+    pending_email: str
+
+
+class CheckEmailChangeTokenRequest(BaseModel):
+    """
+    Checks an email change token in DB (expiration + is_used).
+    Called by auth-service during email change confirmation.
+    """
+    user_id: str
+    raw_token: str
+
+
+class CheckEmailChangeTokenResponse(BaseModel):
+    """Result of the DB verification of an email change token."""
+    valid: bool
+    detail: str = ""
+
+
+class ConfirmEmailChangeRequest(BaseModel):
+    """
+    Marks the email change token as used AND applies the new email.
+    Atomic call — both operations happen in a single request.
+    """
+    user_id: str
+    raw_token: str
+
+
+class ConfirmEmailChangeResponse(BaseModel):
+    """Result of the email change confirmation."""
     email: str
     confirmed: bool

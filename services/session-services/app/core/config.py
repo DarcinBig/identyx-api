@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     # When reached, the oldest active session is revoked on the next login
     max_sessions_per_user: int = 5
 
+    # Shared secret for inter-service calls (X-Internal-Key).
+    # Protects the internal session endpoints from direct network access.
+    internal_api_key: str = ""
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @model_validator(mode="after")

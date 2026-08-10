@@ -21,6 +21,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.config import get_settings
 from app.db.session import Base
+from app.models.deletion_request import DeletionRequest  # noqa: F401
+from app.models.email_change import EmailChange  # noqa: F401
 from app.models.email_verification import EmailVerification  # noqa: F401
 
 # IMPORTANT — import all models here

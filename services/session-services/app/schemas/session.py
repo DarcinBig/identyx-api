@@ -45,6 +45,7 @@ class SessionResponse(BaseModel):
     is_revoked: bool
     expires_at: datetime
     created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
 

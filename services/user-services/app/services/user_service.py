@@ -88,7 +88,7 @@ class UserService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found",
             )
-        if user.avatar_provider == "default":
+        if user.avatar_provider == "upload":
             await self.storage.delete_avatar(user_id)
 
         deleted = await self.repo.delete(user_id)
@@ -396,6 +396,237 @@ class UserService:
         await repo.mark_as_used(reset.id)
 
         user = await self.repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found.",
+            )
+
+        return {
+            "email": user.email,
+            "confirmed": True,
+        }
+
+    # --- Account deletion tokens (GDPR, called only by auth-service) ------------------------
+
+    async def store_deletion_request_token(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> None:
+        """
+        Stores an account deletion confirmation token in DB.
+        Called by auth-service when the owner requests a GDPR deletion.
+        Only the SHA-256 hash of the raw token is stored.
+        """
+        from app.repositories.deletion_request_repo import DeletionRequestRepository
+
+        repo = DeletionRequestRepository(self.db)
+        await repo.create(
+            user_id=user_id,
+            raw_token=raw_token,
+            expires_in_hours=24,
+        )
+
+    async def check_deletion_request_token(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> dict:
+        """
+        Checks the deletion confirmation token in DB:
+          - Does it exist?
+          - Does it belong to user_id?
+          - Not expired?
+          - Not already used?
+        """
+        from datetime import UTC, datetime
+
+        from app.repositories.deletion_request_repo import DeletionRequestRepository
+
+        repo = DeletionRequestRepository(self.db)
+        deletion_request = await repo.get_by_token(raw_token)
+
+        if not deletion_request:
+            return {"valid": False, "detail": "Deletion token not found."}
+
+        if deletion_request.user_id != user_id:
+            return {"valid": False, "detail": "Invalid deletion token."}
+
+        if deletion_request.is_used:
+            return {"valid": False, "detail": "Deletion token already used."}
+
+        now = datetime.now(UTC)
+        expires_at = deletion_request.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+
+        if expires_at < now:
+            return {"valid": False, "detail": "Deletion token expired."}
+
+        return {"valid": True, "detail": ""}
+
+    async def confirm_deletion(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> dict:
+        """
+        Atomic GDPR deletion:
+          1. Mark the deletion token as used (single-use)
+          2. Permanently delete the user profile (+ avatar if any)
+
+        Returns the email of the deleted account.
+        """
+        from app.repositories.deletion_request_repo import DeletionRequestRepository
+
+        repo = DeletionRequestRepository(self.db)
+        deletion_request = await repo.get_by_token(raw_token)
+
+        if not deletion_request:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Deletion token not found.",
+            )
+
+        # Retrieve the email BEFORE deleting the user
+        user = await self.repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found.",
+            )
+        email = user.email
+
+        # Mark the token as used (single-use)
+        await repo.mark_as_used(deletion_request.id)
+
+        # Remove the avatar from storage if it was a user upload
+        if user.avatar_provider == "upload":
+            try:
+                await self.storage.delete_avatar(user_id)
+            except Exception:
+                pass
+
+        # Permanently delete the profile
+        deleted = await self.repo.delete(user_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found.",
+            )
+
+        return {
+            "email": email,
+            "deleted": True,
+        }
+
+    # --- Email change tokens (called only by auth-service) ---------------------------------
+
+    async def store_email_change_token(
+        self,
+        user_id: str,
+        raw_token: str,
+        pending_email: str,
+    ) -> None:
+        """
+        Stores an email change request in DB.
+        Called by auth-service when the owner asks to change their email.
+        Only the SHA-256 hash of the raw token is stored.
+        """
+        from app.repositories.email_change_repo import EmailChangeRepository
+
+        repo = EmailChangeRepository(self.db)
+        await repo.create(
+            user_id=user_id,
+            raw_token=raw_token,
+            pending_email=pending_email,
+            expires_in_hours=24,
+        )
+
+    async def check_email_change_token(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> dict:
+        """
+        Checks the email change token in DB:
+          - Does it exist?
+          - Does it belong to user_id?
+          - Not expired?
+          - Not already used?
+        """
+        from datetime import UTC, datetime
+
+        from app.repositories.email_change_repo import EmailChangeRepository
+
+        repo = EmailChangeRepository(self.db)
+        email_change = await repo.get_by_token(raw_token)
+
+        if not email_change:
+            return {"valid": False, "detail": "Email change token not found."}
+
+        if email_change.user_id != user_id:
+            return {"valid": False, "detail": "Invalid email change token."}
+
+        if email_change.is_used:
+            return {"valid": False, "detail": "Email change token already used."}
+
+        now = datetime.now(UTC)
+        expires_at = email_change.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+
+        if expires_at < now:
+            return {"valid": False, "detail": "Email change token expired."}
+
+        return {"valid": True, "detail": ""}
+
+    async def confirm_email_change(
+        self,
+        user_id: str,
+        raw_token: str,
+    ) -> dict:
+        """
+        Atomic email change:
+          1. Mark the email change token as used (single-use)
+          2. Apply the pending email (replaces the current one)
+
+        The new email has been proven by the confirmation link,
+        so is_verified is set to True.
+        Returns the updated profile.
+        """
+        from app.repositories.email_change_repo import EmailChangeRepository
+
+        repo = EmailChangeRepository(self.db)
+        email_change = await repo.get_by_token(raw_token)
+
+        if not email_change:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email change token not found.",
+            )
+
+        # Mark the token as used (single-use)
+        await repo.mark_as_used(email_change.id)
+
+        # The target email could have been taken between the request
+        # and the confirmation — check before applying.
+        if await self.repo.get_by_email(email_change.pending_email):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email already registered.",
+            )
+
+        # Apply the pending email
+        user = await self.repo.update(
+            user_id=user_id,
+            data=UserUpdate(
+                email=email_change.pending_email,
+                is_verified=True,
+            ),
+        )
+
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

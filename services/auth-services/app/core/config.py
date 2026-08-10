@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     session_service_url: str = "http://session-service:8004"
     email_service_url: str = "http://email-service:8005"
 
+    # Shared secret sent as X-Internal-Key on all inter-service calls.
+    # The user/session/token services check it on their /internal endpoints.
+    internal_api_key: str = ""
+
     model_config = {
         "env_file": ".env",
         "extra": "ignore",

@@ -49,10 +49,10 @@ async def blacklist_token(jti: str, ttl_seconds: int) -> None:
         ttl_seconds: Remaining lifetime in seconds
     """
     client = await get_redis()
-    await client.setex(
-        name=f"blacklist:{jti}",
-        time=ttl_seconds,
-        value=1,
+    await client.set(
+        f"blacklist:{jti}",
+        1,
+        ex=ttl_seconds,
     )
 
 async def is_blacklisted(jti: str) -> bool:

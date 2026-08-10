@@ -26,13 +26,18 @@ from app.core.config import get_settings
 settings = get_settings()
 logger = logging.getLogger("gateway.jwt")
 
-# Routes that do not require JWT
+# Routes that do not require JWT.
+# The public API is versioned under /v1.
+# /health, /metrics and /docs are operational endpoints (not versioned).
 PUBLIC_ROUTES: set[tuple[str, str]] = {
-    ("POST", "/auth/register"),
-    ("POST", "/auth/login"),
-    ("GET", "/auth/verify-email"),
-    ("POST", "/auth/reset-password"),
-    ("GET", "/auth/reset-password"),
+    ("POST", "/v1/auth/register"),
+    ("POST", "/v1/auth/login"),
+    ("POST", "/v1/auth/refresh"),
+    ("POST", "/v1/auth/resend-verification"),
+    ("POST", "/v1/auth/confirm-deletion"),
+    ("POST", "/v1/auth/confirm-email-change"),
+    ("GET", "/v1/auth/verify-email"),
+    ("POST", "/v1/auth/reset-password"),
     ("GET", "/health"),
     ("GET", "/metrics"),
     ("GET", "/docs"),
@@ -80,8 +85,14 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
         logger.debug("[JWT] %s %s — public: %s", method, path, _is_public(method, path))
 
-        # Public routes
+        # Public routes — strip caller-supplied security headers before forwarding
         if _is_public(method, path):
+            scope = request.scope
+            blocked = {b"x-user-id", b"x-internal-key"}
+            scope["headers"] = [
+                (k, v) for k, v in scope["headers"]
+                if k.lower() not in blocked
+            ]
             return await call_next(request)
 
         # Extract the token
@@ -130,10 +141,13 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         scope = request.scope
         headers = list(scope["headers"])
 
-        # Delete X-User-Id if already present (security)
+        # Strip caller-controlled security-sensitive headers (defense in depth):
+        # X-User-Id is always recomputed from the validated token, and the
+        # internal API key must never leak from an external client to a service.
+        blocked = {b"x-user-id", b"x-internal-key"}
         headers = [
-            (k ,v) for k, v in headers
-            if k.lower() != b"x-user-id"
+            (k, v) for k, v in headers
+            if k.lower() not in blocked
         ]
         headers.append((b"x-user-id", user_id.encode()))
         scope["headers"] = headers

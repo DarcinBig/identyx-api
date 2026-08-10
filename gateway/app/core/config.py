@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     environment: str = "development"
     gateway_port: int = 8100
 
+    # Public base URL (used to populate the OpenAPI `servers` list)
+    app_base_url: str = "http://localhost:8100"
+
     # URLs of internal services
     user_service_url: str = "http://user-service:8001"
     auth_service_url: str = "http://auth-service:8002"
@@ -20,11 +23,19 @@ class Settings(BaseSettings):
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
 
+    # Shared secret for gateway → service internal calls
+    # (e.g. POST /auth/internal/verify-password). Must match root .env.
+    internal_api_key: str = ""
+
     # Rate Limiting
     rate_limit_redis_url: str = "redis://redis:6379/2"
-    rate_limit_global: int = 100    # req/min per IP
-    rate_limit_login: int = 10      # req/min per IP on /auth/login
-    rate_limit_register: int = 5    # req/min per IP on /auth/register
+    rate_limit_global: int = 100            # req/min per IP
+    rate_limit_login: int = 10              # req/min per IP on /auth/login
+    rate_limit_register: int = 5            # req/min per IP on /auth/register
+    rate_limit_reset_password: int = 3      # req/min per IP on /auth/reset-password
+    rate_limit_verify_email: int = 5        # req/min per IP on /auth/verify-email + resend-verification
+    rate_limit_refresh: int = 20            # req/min per IP on /auth/refresh
+    rate_limit_sessions: int = 60           # req/min per IP on /sessions/*
 
     # CORS
     cors_origins: str = "http://localhost:3000,http://localhost:8000"

@@ -1,7 +1,7 @@
 [project]
 name = "identyx"
-version = "0.1.5"
-description = "Add your description here"
+version = "1.0.0"
+description = "Identyx — production-ready authentication & identity platform (FastAPI microservices)"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
@@ -21,6 +21,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-mock>=3.15.1",
+    "ruff>=0.15.20",
 ]
 
 [tool.pytest.ini_options]

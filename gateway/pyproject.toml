@@ -1,12 +1,17 @@
 [project]
 name = "gateway"
-version = "0.1.5"
-description = "Identyx — API Gateway"
+version = "1.0.0"
+description = "Identyx — API Gateway: single entry point with rate limiting, JWT validation, routing and observability"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "fastapi[standard]>=0.136.1",
     "httpx>=0.28.1",
+    "opentelemetry-api>=1.30.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.30.0",
+    "opentelemetry-instrumentation-fastapi>=0.51b0",
+    "opentelemetry-instrumentation-httpx>=0.51b0",
+    "opentelemetry-sdk>=1.30.0",
     "prometheus-client>=0.25.0",
     "pydantic-settings>=2.14.1",
     "python-json-logger>=4.1.0",

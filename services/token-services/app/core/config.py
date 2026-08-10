@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
+    jwt_issuer: str = "identyx"
+    jwt_audience: str = "identyx-api"
 
     # Redis
     redis_url: str | None = None
@@ -21,7 +23,11 @@ class Settings(BaseSettings):
     redis_password: str = ""
     redis_db: int = 0
 
-    model_config = {"env_file": ".env.local", "extra": "ignore"}
+    # Shared secret for inter-service calls (X-Internal-Key).
+    # Protects /tokens/generate and /tokens/revoke from direct network access.
+    internal_api_key: str = ""
+
+    model_config = {"env_file": ".env", "extra": "ignore"}
 
     def get_redis_url(self) -> str:
         if self.redis_url:

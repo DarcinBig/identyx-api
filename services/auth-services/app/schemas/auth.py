@@ -16,6 +16,14 @@ class RegisterRequest(BaseModel):
     username: str
     password: str
 
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, validator) -> str:
+        """Lowercase + strip the email so duplicates are impossible."""
+        if isinstance(validator, str):
+            return validator.strip().lower()
+        return validator
+
     @field_validator("username")
     @classmethod
     def validate_username(cls, validator: str) -> str:
@@ -57,12 +65,12 @@ class LogoutRequest(BaseModel):
     """
     Logout data.
 
-    refresh_token: required — revokes the session in session-service
-    access_token: optional — immediately revokes the access token
-                  in Redis via token-service.
+    refresh_token: required — revokes the session in session-service.
+    The access token is NOT sent in the body — it is extracted
+    by the auth-service from the X-Access-Token header
+    (injected by the gateway from the Authorization header).
     """
     refresh_token: str
-    access_token: str | None = None
 
 class RefreshRequest(BaseModel):
     """
@@ -71,13 +79,6 @@ class RefreshRequest(BaseModel):
     Full implementation later (token service + session service).
     """
     refresh_token: str
-
-class VerifyEmailRequest(BaseModel):
-    """
-    Email verification token
-    GET /auth/verify-email?token=xxx
-    """
-    token: str
 
 class ResetPasswordRequest(BaseModel):
     """
@@ -104,6 +105,13 @@ class ResetPasswordRequest(BaseModel):
             )
         return validator
 
+class ResendVerificationRequest(BaseModel):
+    """
+    Requests a fresh verification email.
+    POST /auth/resend-verification
+    """
+    email: EmailStr
+
 class VerifyEmailResponse(BaseModel):
     """Response following email verification."""
     message: str
@@ -116,7 +124,7 @@ class UserPublic(BaseModel):
     email: str
     username: str
     is_verified: bool
-    avatar_url: str
+    avatar_url: str | None = None
     avatar_provider: str
 
 class AuthResponse(BaseModel):
@@ -140,3 +148,65 @@ class AuthResponse(BaseModel):
 class MessageResponse(BaseModel):
     """Simple response with a message"""
     message: str
+
+class VerifyPasswordRequest(BaseModel):
+    """
+    Password confirmation for destructive operations (delete account,
+    delete avatar). Called by the gateway (internal endpoint).
+    """
+    user_id: str
+    password: str
+
+class VerifyPasswordResponse(BaseModel):
+    """Result of the password confirmation check."""
+    valid: bool
+
+class CreateDeletionRequestRequest(BaseModel):
+    """
+    Creates an account deletion confirmation request (GDPR).
+
+    Called by the gateway after the password has been confirmed.
+    auth-service generates an HMAC-signed token, stores it in
+    user-service and triggers the confirmation email.
+    """
+    user_id: str
+
+class ConfirmDeletionRequest(BaseModel):
+    """
+    Confirms a GDPR account deletion using the email token.
+
+    token: HMAC-signed one-time token received in the deletion email link.
+    """
+    token: str
+
+class DeletionRequestResponse(BaseModel):
+    """Response after a deletion request has been created."""
+    message: str
+
+class EmailChangeRequest(BaseModel):
+    """
+    Requests an email address change.
+
+    Called by the gateway after the password has been confirmed.
+    auth-service generates an HMAC-signed token, stores it in
+    user-service and triggers a confirmation email to the NEW address.
+    """
+    user_id: str
+    new_email: EmailStr
+
+    @field_validator("new_email", mode="before")
+    @classmethod
+    def normalize_email(cls, validator) -> str:
+        """Lowercase + strip the email so duplicates are impossible."""
+        if isinstance(validator, str):
+            return validator.strip().lower()
+        return validator
+
+class ConfirmEmailChangeRequest(BaseModel):
+    """
+    Confirms an email change using the one-time token.
+
+    token: HMAC-signed one-time token received in the confirmation email
+           sent to the NEW address.
+    """
+    token: str

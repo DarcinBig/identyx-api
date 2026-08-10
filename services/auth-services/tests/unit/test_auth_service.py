@@ -255,3 +255,50 @@ class TestAuthServiceLogin:
         assert result.access_token == "access_jwt"
         assert result.refresh_token == "refresh_opaque"
         assert result.user.email == "test@example.com"
+
+
+class TestAuthServiceResendVerification:
+
+    @pytest.mark.asyncio
+    async def test_resend_verification_unknown_email_is_generic(self):
+        """An unknown email must return the same message as a known one."""
+        mock_db = AsyncMock()
+
+        from app.services.auth_service import AuthService
+
+        service = AuthService(mock_db)
+
+        service._get_user_by_email = AsyncMock(
+            side_effect=HTTPException(
+                status_code=401,
+                detail="Invalid email or password",
+            )
+        )
+
+        result = await service.resend_verification(email="ghost@example.com")
+
+        assert result.message == "If the account exists, a verification email has been sent."
+
+    @pytest.mark.asyncio
+    async def test_resend_verification_already_verified_is_generic(self):
+        """An already-verified account must also return the generic message."""
+        mock_db = AsyncMock()
+
+        from app.services.auth_service import AuthService
+
+        service = AuthService(mock_db)
+
+        service._get_user_by_email = AsyncMock(
+            return_value={
+                "id": "uuid-123",
+                "email": "test@example.com",
+                "username": "testuser",
+                "is_verified": True,
+            }
+        )
+        service._publish_user_registered = AsyncMock()
+
+        result = await service.resend_verification(email="test@example.com")
+
+        assert result.message == "If the account exists, a verification email has been sent."
+        service._publish_user_registered.assert_not_called()

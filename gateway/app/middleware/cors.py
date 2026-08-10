@@ -21,8 +21,6 @@ def get_cors_config() -> dict:
         "allow_headers": [
             "Authorization",
             "Content-Type",
-            "X-User-Id",
-            "X-Access-Token",
             "Accept",
             "Origin",
         ],

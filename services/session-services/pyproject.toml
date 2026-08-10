@@ -1,13 +1,18 @@
 [project]
 name = "session-services"
-version = "0.1.5"
-description = "Identyx — Session Management Service"
+version = "1.0.0"
+description = "Identyx — Session service: session lifecycle, refresh-token rotation and multi-device limit"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "alembic>=1.18.4",
     "asyncpg>=0.31.0",
     "fastapi[standard]>=0.136.1",
+    "opentelemetry-api>=1.30.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.30.0",
+    "opentelemetry-instrumentation-fastapi>=0.51b0",
+    "opentelemetry-instrumentation-httpx>=0.51b0",
+    "opentelemetry-sdk>=1.30.0",
     "prometheus-client>=0.25.0",
     "psycopg[binary]>=3.3.4",
     "python-json-logger>=4.1.0",

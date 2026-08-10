@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.dependencies import get_current_user_id
+from app.dependencies import get_current_user_id, require_internal_key
 from app.schemas.session import (
     CreateSessionRequest,
     MessageResponse,
@@ -31,7 +31,11 @@ def get_session_service(db: AsyncSession = Depends(get_db)) -> SessionService:
     include_in_schema=False,
     operation_id="create",
 )
-async def create_session(data: CreateSessionRequest, service: SessionService = Depends(get_session_service)):
+async def create_session(
+        data: CreateSessionRequest,
+        service: SessionService = Depends(get_session_service),
+        _: None = Depends(require_internal_key),
+):
     """
     Creates a session after login or registration.
     Called by the auth-service with the refresh token hash.
@@ -48,7 +52,8 @@ async def create_session(data: CreateSessionRequest, service: SessionService = D
 )
 async def validate_session(
         data: ValidateSessionRequest,
-        service: SessionService = Depends(get_session_service)
+        service: SessionService = Depends(get_session_service),
+        _: None = Depends(require_internal_key),
 ):
     """
     Validates a refresh token.
@@ -64,7 +69,11 @@ async def validate_session(
     include_in_schema=False,
     operation_id="revoke",
 )
-async def revoke_session(data: RevokeSessionRequest, service: SessionService = Depends(get_session_service)):
+async def revoke_session(
+        data: RevokeSessionRequest,
+        service: SessionService = Depends(get_session_service),
+        _: None = Depends(require_internal_key),
+):
     """
     Revokes a session using its refresh token.
     Called by the auth-service upon logout.
@@ -81,7 +90,8 @@ async def revoke_session(data: RevokeSessionRequest, service: SessionService = D
 )
 async def revoke_all_sessions_internal(
         data: RevokeAllSessionsRequest,
-        service: SessionService = Depends(get_session_service)
+        service: SessionService = Depends(get_session_service),
+        _: None = Depends(require_internal_key),
 ):
     """
     Revokes all active sessions for a user.
@@ -99,7 +109,8 @@ async def revoke_all_sessions_internal(
 )
 async def rotate_session(
         data: RotateSessionRequest,
-        service: SessionService = Depends(get_session_service)
+        service: SessionService = Depends(get_session_service),
+        _: None = Depends(require_internal_key),
 ):
     """
     Refresh token rotation.

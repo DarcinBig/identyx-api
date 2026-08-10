@@ -22,6 +22,7 @@ Usage:
 """
 import redis.asyncio as aioredis
 
+
 class EventPublisher:
     """
     Publishes events to Redis Pub/Sub channels.
@@ -42,7 +43,7 @@ class EventPublisher:
             decode_responses=True,
         )
         await self._client.ping()
-        print(f"[EventPublisher] Connected to Redis")
+        print("[EventPublisher] Connected to Redis")
 
     async def close(self) -> None:
         """Closes Redis connection."""
