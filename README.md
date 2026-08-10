@@ -179,17 +179,17 @@ email-service is down, messages persist in Redpanda and are consumed later.
 Each service owns **its** database and never writes to another service's store:
 
 ```
-┌──────────────┬─────────────────────────┬───────────────────────────────┐
-│ Service      │ Store                   │ Data                          │
-├──────────────┼─────────────────────────┼───────────────────────────────┤
-│ auth-service │ postgres-auth           │ credentials (Argon2id hashes) │
-│ user-service │ postgres-users          │ profiles, avatars, token hashes, pending_email │
-│ session-service│ postgres-sessions     │ sessions, refresh-token hashes │
-│ token-service │ redis DB 0             │ access-token blacklist        │
-│ gateway      │ redis DB 2              │ rate-limit sliding windows    │
-│ auth-service │ redis DB 2              │ brute-force counters          │
-│ email-service│ (SMTP) / redpanda       │ email templates, event stream │
-└──────────────┴─────────────────────────┴───────────────────────────────┘
+┌────────────────┬─────────────────────────┬────────────────────────────────────────────────┐
+│ Service        │ Store                   │ Data                                           │
+├────────────────┼─────────────────────────┼────────────────────────────────────────────────┤
+│ auth-service   │ postgres-auth           │ credentials (Argon2id hashes)                  │
+│ user-service   │ postgres-users          │ profiles, avatars, token hashes, pending_email │
+│ session-service│ postgres-sessions       │ sessions, refresh-token hashes                 │
+│ token-service  │ redis DB 0              │ access-token blacklist                         │
+│ gateway        │ redis DB 2              │ rate-limit sliding windows                     │
+│ auth-service   │ redis DB 2              │ brute-force counters                           │
+│ email-service  │ (SMTP) / redpanda       │ email templates, event stream                  │
+└────────────────┴─────────────────────────┴────────────────────────────────────────────────┘
 ```
 
 > One-time tokens (email verification, password reset, account deletion,
