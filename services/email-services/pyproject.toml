@@ -1,6 +1,6 @@
 [project]
 name = "email-services"
-version = "1.0.0"
+version = "1.1.0"
 description = "Identyx — Email service: Kafka-driven transactional emails (verification, security and new-login alerts)"
 readme = "README.md"
 requires-python = ">=3.14"

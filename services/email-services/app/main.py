@@ -1,4 +1,4 @@
-"""email-service/app/main.py — V1.0.0"""
+"""email-service/app/main.py — V1.1.0"""
 
 import asyncio
 import logging
@@ -94,7 +94,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Identyx Email Service",
     description="Transactional email sending",
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan,
     redirect_slashes=False,
     docs_url="/docs" if settings.debug else None,
@@ -134,7 +134,7 @@ async def health_check():
     return {
         "service": "email-service",
         "status": overall,
-        "version": "1.0.0",
+        "version": "1.1.0",
         "uptime_seconds": uptime_seconds,
         "dependencies": {
             "kafka": settings.kafka_bootstrap_servers,

@@ -49,7 +49,7 @@ def _api_lookup(ip: str) -> str:
     Returns an empty string on any failure.
     """
     url = f"http://ip-api.com/json/{ip}?fields=status,country,regionName,city"
-    request = urllib.request.Request(url, headers={"User-Agent": "Identyx/1.0.0"})
+    request = urllib.request.Request(url, headers={"User-Agent": "Identyx/1.1.0"})
     with urllib.request.urlopen(request, timeout=5) as response:
         data = json.loads(response.read().decode("utf-8"))
     if data.get("status") != "success":
