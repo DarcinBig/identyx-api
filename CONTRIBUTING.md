@@ -188,7 +188,8 @@ identyx-api/
 │   ├── user-services/        # User profiles
 │   ├── token-services/       # JWT lifecycle
 │   ├── session-services/     # Session management
-│   └── email-services/       # Email notifications
+│   ├── email-services/       # Email notifications
+│   └── application-services/ # Application registry & API keys
 ├── infra/                    # Docker Compose, Redpanda, .env
 ├── docs/                     # Images, diagrams
 └── .github/workflows/        # CI pipeline

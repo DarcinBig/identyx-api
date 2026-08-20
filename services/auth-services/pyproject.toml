@@ -1,6 +1,6 @@
 [project]
 name = "auth-services"
-version = "1.0.0"
+version = "1.1.0"
 description = "Identyx — Authentication service: register, login, logout, token refresh, email verification and password reset"
 readme = "README.md"
 requires-python = ">=3.14"

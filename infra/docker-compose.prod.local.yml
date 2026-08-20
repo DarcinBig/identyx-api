@@ -45,6 +45,10 @@ services:
     build:
       context: ../services/email-services
       dockerfile: Dockerfile
+  application-service:
+    build:
+      context: ../services/application-services
+      dockerfile: Dockerfile
 
   # Redpanda — dev-container mode + 512M (fits this laptop).
   # Prod keeps --memory 2048M without dev-container (real server).
@@ -64,7 +68,14 @@ services:
       - --mode dev-container
       - --default-log-level=warn
 
-  # Caddy — HTTPS on https://localhost (internal CA, no DNS needed)
-  caddy:
-    environment:
-      DOMAIN: localhost
+  # Caddy — DISABLED for local runs: ports 80/443 are already in use on the
+  # dev machine. Re-enable (uncomment) before deploying to production.
+  # caddy:
+  #   environment:
+  #     DOMAIN: localhost
+
+  # Optional (Caddy disabled): expose the gateway from the host so the stack
+  # stays reachable locally on http://localhost:8100.
+  # gateway:
+  #   ports:
+  #     - "8100:8100"
