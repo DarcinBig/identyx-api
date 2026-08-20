@@ -9,7 +9,7 @@
                          |___/      
 ```
 
-> Authentication & Identity API — **v1.0.0**
+> Authentication & Identity API — **V1.1.0**
 
 [![CI](https://github.com/DarcinBig/identyx-api/actions/workflows/ci.yml/badge.svg)](https://github.com/DarcinBig/identyx-api/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -40,6 +40,7 @@ scalability and seamless integration across web and mobile applications.
 | **Password confirmation on sensitive actions** | ✅ Done |
 | **Prometheus metrics + Grafana dashboards** | ✅ Done |
 | **OpenTelemetry distributed traces (Tempo)** | ✅ Done |
+| **Third-party application registry & API keys** | ✅ Done |
 | **CI: lint, unit tests, E2E suite** | ✅ Done |
 | **OAuth 2.0 providers (Google, GitHub, …)** | 🔜 Planned |
 | **Passkeys (WebAuthn)** | 🔜 Planned |
@@ -53,7 +54,11 @@ scalability and seamless integration across web and mobile applications.
 
 Identyx follows an **API Gateway + microservices** pattern. A single gateway is
 the only externally reachable component; it authenticates every request and
-proxies it to one of **5 dedicated services**, each owning its own data store.
+proxies it to one of **5 services**, each owning its own data store. A sixth —
+`application-service` (`:8006`, third-party application registry & API keys) —
+runs in the stack and is already wired into the gateway config
+(`APPLICATION_SERVICE_URL`); its public proxy routes are staged for the next
+release.
 
 ```
                                 ┌─────────────────────┐
@@ -115,9 +120,10 @@ proxies it to one of **5 dedicated services**, each owning its own data store.
 | **token-service** | `8003` | JWT generation, verification (incl. `iss`/`aud`) and blacklisting (Redis DB 0). Internal only |
 | **session-service** | `8004` | Session lifecycle, single-use refresh-token rotation, multi-device limit (oldest session revoked) |
 | **email-service** | `8005` | Consumes Kafka events and sends transactional emails (verification, security alert, new-login alert with IP geolocation, deletion & email-change confirmations) |
+| **application-service** | `8006` | Third-party application registry + API keys (`pk_live_…` / `sk_live_…`, Stripe-aligned); Redis-cached key verification (DB 3) with active cache invalidation on revoke. Internal only — gateway wiring prepared |
 | **redpanda** | `9092` | Kafka-compatible message broker for async events |
 | **redis** | `6379` | Token blacklist (DB 0), service state (DB 1), rate limiting & brute-force counters (DB 2) |
-| **postgres-\*** | `5432` | One isolated PostgreSQL instance per service (auth, users, sessions) |
+| **postgres-\*** | `5432` | One isolated PostgreSQL instance per service (auth, users, sessions, applications) |
 | **prometheus** | `9090` | Metrics collection and scraping |
 | **grafana** | `3000` | Auto-provisioned dashboards (Prometheus datasource) |
 | **tempo** | `4317/4318` | Distributed traces collector (OTLP) + query UI `3200` |
@@ -140,7 +146,7 @@ SecurityHeaders → RateLimit → Metrics → _app (CORS → Logging → Errors 
 | `ErrorHandlingMiddleware` | Normalized JSON error responses |
 | `JWTAuthMiddleware` | Extracts `Bearer` token, calls `POST /tokens/verify`, injects `X-User-Id`, strips caller-supplied `X-User-Id` / `X-Internal-Key` |
 
-The `/health` endpoint probes all 5 services concurrently and reports
+The `/health` endpoint probes all 5 gateway-proxied services concurrently and reports
 `ok`/`degraded`. The `/ready` endpoint additionally checks the rate-limit Redis
 connection and returns `200`/`503` for orchestrator readiness probes.
 
@@ -179,17 +185,19 @@ email-service is down, messages persist in Redpanda and are consumed later.
 Each service owns **its** database and never writes to another service's store:
 
 ```
-┌────────────────┬─────────────────────────┬────────────────────────────────────────────────┐
-│ Service        │ Store                   │ Data                                           │
-├────────────────┼─────────────────────────┼────────────────────────────────────────────────┤
-│ auth-service   │ postgres-auth           │ credentials (Argon2id hashes)                  │
-│ user-service   │ postgres-users          │ profiles, avatars, token hashes, pending_email │
-│ session-service│ postgres-sessions       │ sessions, refresh-token hashes                 │
-│ token-service  │ redis DB 0              │ access-token blacklist                         │
-│ gateway        │ redis DB 2              │ rate-limit sliding windows                     │
-│ auth-service   │ redis DB 2              │ brute-force counters                           │
-│ email-service  │ (SMTP) / redpanda       │ email templates, event stream                  │
-└────────────────┴─────────────────────────┴────────────────────────────────────────────────┘
+┌──────────────┬─────────────────────────┬───────────────────────────────┐
+│ Service      │ Store                   │ Data                          │
+├──────────────┼─────────────────────────┼───────────────────────────────┤
+│ auth-service │ postgres-auth           │ credentials (Argon2id hashes) │
+│ user-service │ postgres-users          │ profiles, avatars, token hashes, pending_email │
+│ session-service│ postgres-sessions     │ sessions, refresh-token hashes │
+│ token-service │ redis DB 0             │ access-token blacklist        │
+│ gateway      │ redis DB 2              │ rate-limit sliding windows    │
+│ auth-service │ redis DB 2              │ brute-force counters          │
+│ email-service│ (SMTP) / redpanda       │ email templates, event stream │
+│ application-service │ postgres-applications │ applications, API keys (key_id + SHA-256 key_hash) │
+│ application-service │ redis DB 3             │ API-key resolution cache (TTL 60 s, active invalidation) │
+└──────────────┴─────────────────────────┴───────────────────────────────┘
 ```
 
 > One-time tokens (email verification, password reset, account deletion,
@@ -227,6 +235,10 @@ Each service owns **its** database and never writes to another service's store:
   no-op otherwise.
 - **Logs** — structured JSON via `python-json-logger` (`service_started`,
   `service_stopped`, per-request logs, security events).
+- **Healthchecks** — every container ships a Docker healthcheck. Prometheus
+  (`/-/healthy`), Grafana (`/api/health`) and Tempo (`/ready`) expose HTTP
+  probes wired into both compose stacks; in production Grafana waits for
+  Prometheus to be healthy (`depends_on: service_healthy`).
 
 ---
 
@@ -546,6 +558,24 @@ identyx-api/
 │           ├── templates/            # verify_email, reset_password, security_alert, new_login, account_deletion, email_change
 │           └── observability/tracing.py
 │
+│   ├── application-services/         # application registry & API keys — :8006
+│   │   ├── Dockerfile
+│   │   ├── pyproject.toml
+│   │   ├── alembic/                  # DB migrations (applications, api_keys)
+│   │   ├── tests/
+│   │   └── app/
+│   │       ├── main.py               # FastAPI app (internal only)
+│   │       ├── core/config.py
+│   │       ├── api/routes/applications.py  # /applications/* internal endpoints
+│   │       ├── db/session.py
+│   │       ├── models/               # Application, ApiKey (SQLAlchemy)
+│   │       ├── repositories/
+│   │       ├── schemas/
+│   │       ├── security/key_generation.py  # key generation + SHA-256 hashing + constant-time verify
+│   │       ├── cache/redis.py        # key-resolution cache (Redis DB 3)
+│   │       ├── services/application_service.py
+│   │       └── observability/tracing.py
+│   │
 ├── shared/                           # shared cross-service package
 │   ├── events/                       # publisher, subscribers, types
 │   ├── logging/config.py
@@ -619,10 +649,10 @@ cp .env.production.example .env
 #        openssl rand -base64 48   # INTERNAL_API_KEY
 
 # 3. Pull the pre-built images (or add `--build` to build locally)
-IMAGE_TAG=v1.0.0 docker compose -f infra/docker-compose.prod.yml pull
+IMAGE_TAG=V1.1.0 docker compose -f infra/docker-compose.prod.yml pull
 
 # 4. Start the stack
-IMAGE_TAG=v1.0.0 docker compose -f infra/docker-compose.prod.yml up -d
+IMAGE_TAG=V1.1.0 docker compose -f infra/docker-compose.prod.yml up -d
 
 # 5. Check health
 curl https://api.identyx.io/health
@@ -664,6 +694,7 @@ Key variables:
 | `REDIS_PASSWORD` | Redis auth password | *(required)* |
 | `INTERNAL_API_KEY` | Shared secret for inter-service calls (`X-Internal-Key`) | *(required)* |
 | `APP_BASE_URL` | Public base URL used in email links | `http://localhost:8100` |
+| `APPLICATION_SERVICE_URL` | Internal application-service URL (gateway) | `http://application-service:8006` |
 | `ENVIRONMENT` | `development` or `production` | `development` |
 | `CORS_ORIGINS` | Comma-separated allowed origins | `http://localhost:3000,http://localhost:8000` |
 | `RATE_LIMIT_REFRESH` / `RATE_LIMIT_SESSIONS` | Per-IP rate limits for refresh & sessions routes | `20` / `60` |
@@ -708,8 +739,8 @@ or `/docs` on a dev instance.
 | `/ready` | GET | — | Readiness probe (200/503) for orchestrators |
 | `/metrics` | GET | — | Prometheus scrape endpoint |
 
-> The internal routes (`/tokens/*`, `/users/internal/*`, `/emails/*`) are **not**
-> exposed through the gateway.
+> The internal routes (`/tokens/*`, `/users/internal/*`, `/emails/*`,
+> `/applications/*`) are **not** exposed through the gateway.
 
 ---
 
@@ -752,6 +783,7 @@ We welcome contributions! Please see [`CONTRIBUTING.md`](CONTRIBUTING.md) for gu
 - [x] GDPR account deletion (email-confirmed)
 - [x] Email change with re-verification
 - [x] Password confirmation on sensitive actions
+- [x] Third-party application registry & API keys
 - [x] Prometheus metrics + Grafana dashboards
 - [x] OpenTelemetry distributed traces (Tempo)
 - [x] CI pipeline with E2E suite

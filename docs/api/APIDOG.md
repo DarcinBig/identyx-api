@@ -1,4 +1,4 @@
-# Identyx v1.0.0 — API Documentation for Apidog
+# Identyx V1.1.0 — API Documentation for Apidog
 
 ## Table of contents
 
@@ -12,7 +12,7 @@
 8. [Error handling](#8-error-handling)
 9. [Rate limiting](#9-rate-limiting)
 10. [Known limitations of the generated spec](#10-known-limitations-of-the-generated-spec)
-11. [Changelog v1.0.0](#11-changelog-v100)
+11. [Changelog V1.1.0](#11-changelog-v110)
 12. [Maintenance](#12-maintenance)
 
 ---
@@ -21,7 +21,10 @@
 
 Identyx exposes a public API through a **FastAPI gateway** that proxies to five
 internal microservices (`auth`, `user`, `session`, `token`, `email`). All public
-routes are versioned under `/v1` and use JSON.
+routes are versioned under `/v1` and use JSON. A sixth internal service —
+`application-service` (`:8006`, third-party applications & API keys) — runs in
+the stack; its gateway wiring is prepared (`APPLICATION_SERVICE_URL`) and its
+`/v1/applications/*` routes are staged.
 
 The gateway is a pass-through: request/response payloads are defined by the internal
 services and are not re-declared in the OpenAPI specification. This document therefore
@@ -394,7 +397,7 @@ Liveness probe (public).
 {
   "service": "gateway",
   "status": "ok",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "uptime_seconds": 1810,
   "services": {
     "auth-service": "ok",
@@ -459,7 +462,26 @@ The `429` response includes `retry_after` (seconds). The brute-force protection
 
 ---
 
-## 11. Changelog v1.0.0
+## 11. Changelog V1.1.0
+
+- **Infrastructure — healthchecks:** Prometheus (`/-/healthy`), Grafana
+  (`/api/health`) and Tempo (`/ready`) now ship Docker HTTP healthchecks in both
+  compose stacks (`infra/docker-compose.yml` and
+  `infra/docker-compose.prod.yml`); in production Grafana waits for Prometheus
+  to be healthy (`depends_on: service_healthy`).
+- **application-service:** security fix — `verify-key` cache hits now re-validate
+  the secret (`key_hash`) before returning `200` instead of trusting the cached
+  payload; regression test added (61 unit tests passing). Memory limit raised to
+  `256M` in the prod compose (fixes an OOM crash under load).
+- **Gateway wiring prepared:** `APPLICATION_SERVICE_URL=http://application-service:8006`
+  added to `.env`, `.env.example`, the gateway config (`application_service_url`)
+  and both compose files; the `/v1/applications/*` proxy routes are staged for
+  the next release.
+- **Email change:** full workflow verified end-to-end (24/24 checks) — after
+  confirmation the new email **replaces** `users.email` (the old address is not
+  retained) and `is_verified` is set to `True`.
+
+### Previous release (V1.0.0)
 
 - **Versioning:** all public routes under `/v1`.
 - **Security:** headers (HSTS, nosniff, frame DENY, referrer-policy, permissions-policy),

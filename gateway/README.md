@@ -6,7 +6,9 @@ gateway; internal services are never reachable directly from outside.
 ## Role
 
 - **Reverse proxy** — routes `/v1/auth/*`, `/v1/users/*`, `/v1/sessions/*` to the
-  corresponding internal services.
+  corresponding internal services. The config already carries
+  `APPLICATION_SERVICE_URL` (application-service `:8006`) in preparation for the
+  `/v1/applications/*` routes (staged for the next release).
 - **JWT validation** — verifies the access token before forwarding, then injects
   the `X-User-Id` header used downstream.
 - **Rate limiting** — Redis-backed, per-IP limits on global traffic and on
@@ -53,6 +55,7 @@ All variables are read from the root `.env` (see
 | `TOKEN_SERVICE_URL` | `http://token-service:8003` | Internal token-service URL |
 | `SESSION_SERVICE_URL` | `http://session-service:8004` | Internal session-service URL |
 | `EMAIL_SERVICE_URL` | `http://email-service:8005` | Internal email-service URL |
+| `APPLICATION_SERVICE_URL` | `http://application-service:8006` | Internal application-service URL (config ready; `/v1/applications/*` proxy routes staged) |
 | `JWT_SECRET_KEY` | — | Secret used to validate JWTs (HS256) |
 | `RATE_LIMIT_GLOBAL` | `100` | Global requests/minute per IP |
 | `RATE_LIMIT_LOGIN` | `10` | Login requests/minute per IP |
