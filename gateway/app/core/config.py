@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     token_service_url: str = "http://token-service:8003"
     session_service_url: str = "http://session-service:8004"
     email_service_url: str = "http://email-service:8005"
+    application_service_url: str = "http://application-service:8006"
 
     # JWT (gateway-side validation)
     jwt_secret_key: str = ""

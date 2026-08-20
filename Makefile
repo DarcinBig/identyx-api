@@ -3,7 +3,7 @@
 # Every Python package (gateway + the five services) is managed independently
 # by uv; these targets just fan out over them.
 
-SERVICES := gateway services/auth-services services/user-services services/token-services services/session-services services/email-services
+SERVICES := gateway services/auth-services services/user-services services/token-services services/session-services services/email-services services/application-services
 
 .PHONY: help lock sync lint lint-fix test test-e2e check up down logs e2e fmt
 

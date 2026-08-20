@@ -1,4 +1,13 @@
 # version: "3.9"
+#
+# LOCAL DEVELOPMENT stack. Do NOT merge (layer) this file with
+# docker-compose.prod.yml — both define the same services with
+# incompatible settings (e.g. Redpanda 512M dev-container here vs
+# 2048M prod mode) and the merged Redpanda does not fit a dev laptop.
+# Run the stacks separately (from infra/):
+#   dev  : docker compose -f docker-compose.yml up --build -d
+#   prod : docker compose -f docker-compose.prod.yml \
+#              -f docker-compose.prod.local.yml up --build -d
 
 services:
 
@@ -23,6 +32,7 @@ services:
       TOKEN_SERVICE_URL: http://token-service:8003
       SESSION_SERVICE_URL: http://session-service:8004
       EMAIL_SERVICE_URL: http://email-service:8005
+      APPLICATION_SERVICE_URL: http://application-service:8006
 
       RATE_LIMIT_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/2"
     depends_on:
@@ -35,6 +45,8 @@ services:
       token-service:
         condition: service_healthy
       email-service:
+        condition: service_healthy
+      application-service:
         condition: service_healthy
     networks:
       - identyx-network
@@ -217,6 +229,41 @@ services:
       start_period: 30s
 
   # ─────────────────────────────────────────────
+  # APPLICATION SERVICE — Third-party apps + API keys (not yet wired to gateway)
+  # ─────────────────────────────────────────────
+  application-service:
+    build:
+      context: ../services/application-services
+      dockerfile: Dockerfile
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8006", "--reload", "--no-server-header"]
+    container_name: identyx-applications
+#    ports:
+#      - "8006:8006"
+    env_file: ../.env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      POSTGRES_HOST: postgres-applications
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: identyx_applications
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/3
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    depends_on:
+      postgres-applications:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - identyx-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8006/health" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ─────────────────────────────────────────────
   # PROMETHEUS — Metrics
   # ─────────────────────────────────────────────
 
@@ -235,6 +282,12 @@ services:
       - "--web.console.templates=/usr/share/prometheus/consoles"
     networks:
       - identyx-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
 
   # ─────────────────────────────────────────────
@@ -260,6 +313,12 @@ services:
         condition: service_started
     networks:
       - identyx-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
 
   # ─────────────────────────────────────────────
@@ -279,6 +338,12 @@ services:
       - "-config.file=/etc/tempo/tempo.yml"
     networks:
       - identyx-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3200/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
 
   # ─────────────────────────────────────────────
@@ -333,6 +398,24 @@ services:
       - identyx-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U identyx -d identyx_sessions"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  postgres-applications:
+    image: postgres:16-alpine
+    container_name: identyx-db-applications
+    environment:
+      POSTGRES_USER: identyx
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: identyx_applications
+    volumes:
+      - pgdata-applications:/var/lib/postgresql/data
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identyx -d identyx_applications"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -424,6 +507,7 @@ volumes:
   pgdata-auth:
   pgdata-users:
   pgdata-sessions:
+  pgdata-applications:
   redisdata:
   prometheusdata:
   grafanadata:

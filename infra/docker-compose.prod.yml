@@ -27,30 +27,33 @@ services:
 
   # ─────────────────────────────────────────────
   # CADDY — Reverse proxy + automatic HTTPS
+  # DISABLED for local runs: ports 80/443 are already
+  # in use on the dev machine. RE-ENABLE (uncomment)
+  # before deploying to production.
   # ─────────────────────────────────────────────
-  caddy:
-    image: caddy:2.9-alpine
-    restart: always
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      DOMAIN: ${DOMAIN:-api.identyx.io}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    networks:
-      - identyx-network
-    depends_on:
-      gateway:
-        condition: service_healthy
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+  # caddy:
+  #   image: caddy:2.9-alpine
+  #   restart: always
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #     - "443:443/udp"
+  #   environment:
+  #     DOMAIN: ${DOMAIN:-api.identyx.io}
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - caddy_data:/data
+  #     - caddy_config:/config
+  #   networks:
+  #     - identyx-network
+  #   depends_on:
+  #     gateway:
+  #       condition: service_healthy
+  #   logging:
+  #     driver: json-file
+  #     options:
+  #       max-size: "10m"
+  #       max-file: "3"
 
   # ─────────────────────────────────────────────
   # GATEWAY — Single entry point (internal only)
@@ -67,6 +70,7 @@ services:
       TOKEN_SERVICE_URL: http://token-service:8003
       SESSION_SERVICE_URL: http://session-service:8004
       EMAIL_SERVICE_URL: http://email-service:8005
+      APPLICATION_SERVICE_URL: http://application-service:8006
       RATE_LIMIT_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/2"
     depends_on:
       auth-service:
@@ -78,6 +82,8 @@ services:
       token-service:
         condition: service_healthy
       email-service:
+        condition: service_healthy
+      application-service:
         condition: service_healthy
     networks:
       - identyx-network
@@ -293,6 +299,47 @@ services:
         max-file: "3"
 
   # ─────────────────────────────────────────────
+  # APPLICATION SERVICE — Third-party apps + API keys
+  # Internal service only (no public route); not yet wired to the gateway.
+  # ─────────────────────────────────────────────
+  application-service:
+    image: ghcr.io/darcinbig/identyx-application-service:${IMAGE_TAG:-latest}
+    restart: always
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8006", "--workers", "2", "--no-server-header"]
+    env_file: ../.env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      POSTGRES_HOST: postgres-applications
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: identyx_applications
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/3
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    depends_on:
+      postgres-applications:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─────────────────────────────────────────────
   # PROMETHEUS — Metrics (internal only)
   # ─────────────────────────────────────────────
   prometheus:
@@ -308,6 +355,12 @@ services:
       - "--web.console.templates=/usr/share/prometheus/consoles"
     networks:
       - identyx-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   # ─────────────────────────────────────────────
   # GRAFANA — Dashboards (auto-provisioned)
@@ -329,9 +382,15 @@ services:
       - grafanadata:/var/lib/grafana
     depends_on:
       prometheus:
-        condition: service_started
+        condition: service_healthy
     networks:
       - identyx-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   # ─────────────────────────────────────────────
   # TEMPO — Distributed traces (OTLP)
@@ -350,6 +409,12 @@ services:
       - "-config.file=/etc/tempo/tempo.yml"
     networks:
       - identyx-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3200/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   # ─────────────────────────────────────────────
   # DATABASES — One instance per service
@@ -420,6 +485,28 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  postgres-applications:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: identyx
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: identyx_applications
+    volumes:
+      - pgdata-applications:/var/lib/postgresql/data
+    networks:
+      - identyx-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identyx -d identyx_applications"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ─────────────────────────────────────────────
   # REDIS — Cache, sessions, rate limiting
   # ─────────────────────────────────────────────
@@ -468,7 +555,7 @@ services:
       - --rpc-addr redpanda:33145
       - --advertise-rpc-addr redpanda:33145
       - --smp 1
-      - --memory 2048M
+      - --memory ${REDPANDA_MEMORY:-2048M}
       - --overprovisioned
       - --default-log-level=warn
     volumes:
@@ -494,6 +581,7 @@ volumes:
   pgdata-auth:
   pgdata-users:
   pgdata-sessions:
+  pgdata-applications:
   redisdata:
   prometheusdata:
   grafanadata:
