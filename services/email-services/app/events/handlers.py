@@ -11,11 +11,13 @@ from app.events.types import (
     NewLoginEvent,
     UserDeletionRequestedEvent,
     UserEmailChangeRequestedEvent,
+    UserEmailChangedEvent,
     UserRegisteredEvent,
 )
 from app.schemas.email import (
     SendAccountDeletionEmailRequest,
     SendEmailChangeEmailRequest,
+    SendEmailChangedNotificationRequest,
     SendNewLoginEmailRequest,
     SendSecurityAlertEmailRequest,
     SendVerificationEmailRequest,
@@ -161,3 +163,26 @@ async def handler_user_email_change_requested(data: str) -> None:
         )
     except Exception as exc:
         logger.error("handler_user_email_change_requested_error", extra={"error": str(exc)})
+
+
+async def handler_user_email_changed(data: str) -> None:
+    """
+    Handler for user.email_changed.
+    Sends a notification to the NEW email address confirming the change.
+    """
+    try:
+        event = UserEmailChangedEvent.from_json(data)
+        logger.info("handler_user_email_changed", extra={
+            "user_id": event.user_id,
+            "email": event.email,
+        })
+
+        await _email_service.send_email_changed_notification(
+            SendEmailChangedNotificationRequest(
+                email=event.email,
+                username=event.username,
+                old_email=event.old_email,
+            )
+        )
+    except Exception as exc:
+        logger.error("handler_user_email_changed_error", extra={"error": str(exc)})
