@@ -10,6 +10,22 @@ from app.deps import bearer_scheme
 settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+
+def _get_client_ip(request: Request) -> str:
+    """Return the real client IP.
+
+    When ``TRUST_PROXY=true`` the gateway honours the leftmost value of the
+    ``X-Forwarded-For`` header set by a trusted reverse proxy.  Otherwise it
+    falls back to ``request.client.host`` (the direct peer — e.g. the Docker
+    bridge IP in local dev).
+    """
+    if settings.trust_proxy:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 async def _proxy(request: Request, path: str) -> JSONResponse:
     """
     A utility function shared by all routes on the router.
@@ -44,10 +60,11 @@ async def _proxy(request: Request, path: str) -> JSONResponse:
     }
 
     # Set the real client IP as the ONLY X-Forwarded-For value.
-    # The inbound X-Forwarded-For header (attacker-controlled) is ignored —
-    # otherwise a client could spoof its IP and bypass the brute-force lockout.
-    # Used by auth-service for device_info and brute-force tracking.
-    client_ip = request.client.host if request.client else "unknown"
+    # The inbound header from untrusted clients is stripped — the gateway
+    # resolves the true IP via _get_client_ip() which either reads the
+    # proxy-supplied X-Forwarded-For (TRUST_PROXY=true) or falls back to
+    # request.client.host.
+    client_ip = _get_client_ip(request)
     headers["x-forwarded-for"] = client_ip
 
     try:
@@ -166,9 +183,7 @@ async def logout(request: Request):
     }
 
     # Set the real client IP as the ONLY X-Forwarded-For value.
-    # The inbound header (attacker-controlled) is ignored so a client
-    # cannot spoof its IP and bypass the brute-force lockout.
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _get_client_ip(request)
     headers["x-forwarded-for"] = client_ip
 
     # Extract the access token from the Authorization header
@@ -290,6 +305,50 @@ async def confirm_deletion(request: Request):
     **Errors** — `400` invalid/expired/already-used token, `422` invalid body.
     """
     return await _proxy(request, "/auth/confirm-deletion")
+
+@router.get("/confirm-email-change", operation_id="confirm-email-change-get")
+async def confirm_email_change_get(request: Request):
+    """
+    Confirm an email address change via the one-time link (GET).
+
+    The email template embeds a clickable link that hits this GET
+    endpoint. The token is extracted from the ``?token=`` query
+    parameter and forwarded as a POST to the auth-service.
+    """
+    token = request.query_params.get("token", "")
+    if not token:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": "Missing token query parameter."},
+        )
+    if http_state.client is None:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "Gateway not ready"},
+        )
+    try:
+        response = await http_state.client.post(
+            f"{settings.auth_service_url}/auth/confirm-email-change",
+            json={"token": token},
+            headers={"X-Internal-Key": settings.internal_api_key} if settings.internal_api_key else {},
+            timeout=10.0,
+        )
+        try:
+            content = response.json() if response.content else None
+        except Exception:
+            content = {"error": "Invalid response from auth service"}
+        return JSONResponse(content=content, status_code=response.status_code)
+    except httpx.TimeoutException:
+        return JSONResponse(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            content={"error": "Auth service timeout"},
+        )
+    except httpx.ConnectError:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "Auth service unavailable"},
+        )
+
 
 @router.post("/confirm-email-change", operation_id="confirm-email-change")
 async def confirm_email_change(request: Request):

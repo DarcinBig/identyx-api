@@ -61,10 +61,14 @@ def _get_limit_for_path(path: str) -> int:
 
 
 def _get_client_ip(scope) -> str:
-    headers = dict(scope.get("headers", []))
-    forwarded = headers.get(b"x-forwarded-for", b"").decode()
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    # When behind a trusted proxy the real client IP is in X-Forwarded-For;
+    # otherwise we must ignore it (attacker-controlled) and use the direct
+    # peer address to prevent brute-force bypass via spoofed headers.
+    if settings.trust_proxy:
+        headers = dict(scope.get("headers", []))
+        forwarded = headers.get(b"x-forwarded-for", b"").decode()
+        if forwarded:
+            return forwarded.split(",")[0].strip()
     client = scope.get("client")
     if client:
         return client[0]

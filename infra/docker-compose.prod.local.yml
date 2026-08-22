@@ -25,6 +25,13 @@ services:
     build:
       context: ../gateway
       dockerfile: Dockerfile
+    # Expose the gateway from the host so the stack is reachable
+    # locally on http://localhost:8100 (Caddy is disabled).
+    ports:
+      - "8100:8100"
+    # No reverse proxy in front on localhost — override prod's TRUST_PROXY=true
+    environment:
+      TRUST_PROXY: "false"
   auth-service:
     build:
       context: ../services/auth-services
@@ -73,9 +80,3 @@ services:
   # caddy:
   #   environment:
   #     DOMAIN: localhost
-
-  # Optional (Caddy disabled): expose the gateway from the host so the stack
-  # stays reachable locally on http://localhost:8100.
-  # gateway:
-  #   ports:
-  #     - "8100:8100"

@@ -36,6 +36,7 @@ PUBLIC_ROUTES: set[tuple[str, str]] = {
     ("POST", "/v1/auth/resend-verification"),
     ("POST", "/v1/auth/confirm-deletion"),
     ("POST", "/v1/auth/confirm-email-change"),
+    ("GET", "/v1/auth/confirm-email-change"),
     ("GET", "/v1/auth/verify-email"),
     ("POST", "/v1/auth/reset-password"),
     ("GET", "/health"),

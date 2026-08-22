@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     rate_limit_refresh: int = 20            # req/min per IP on /auth/refresh
     rate_limit_sessions: int = 60           # req/min per IP on /sessions/*
 
+    # Proxy — set to true when a trusted reverse proxy (Cloudflare, nginx…)
+    # sits in front of the gateway and sets X-Forwarded-For with the real
+    # client IP.  When false (default), the gateway uses request.client.host
+    # which is the direct peer IP (e.g. Docker bridge 172.x).
+    trust_proxy: bool = False
+
     # CORS
     cors_origins: str = "http://localhost:3000,http://localhost:8000"
 
