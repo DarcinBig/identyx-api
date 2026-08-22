@@ -1,15 +1,18 @@
 """
 Unit tests for the brute-force protection (per-account + per-IP).
 
-The per-account counter (brute:email:{email}) must keep protecting the
-account even when the attacker rotates IPs — that is the core guarantee
-against credential stuffing with distributed sources.
+The per-account counter (brute:email:{tenant_id}:{email}) must keep
+protecting the account even when the attacker rotates IPs — that is the
+core guarantee against credential stuffing with distributed sources.
+Keys are now tenant-scoped: brute:email:{tenant_id}:{email}.
 """
 from unittest.mock import patch
 
 import fakeredis.aioredis as aioredis
 import pytest
 from fastapi import HTTPException
+
+TENANT = "00000000-0000-0000-0000-000000000001"
 
 
 @pytest.fixture
@@ -43,8 +46,8 @@ async def test_failed_attempts_increment_account_counter(fake_redis):
                 lockout_minutes=15,
             )
 
-    assert int(await fake_redis.get("brute:email:victim@example.com")) == 3
-    assert int(await fake_redis.get("brute:ip:10.0.0.1")) == 3
+    assert int(await fake_redis.get(f"brute:email:{TENANT}:victim@example.com")) == 3
+    assert int(await fake_redis.get(f"brute:ip:{TENANT}:10.0.0.1")) == 3
 
 
 @pytest.mark.asyncio
@@ -159,7 +162,7 @@ async def test_successful_login_resets_counters(fake_redis):
             lockout_minutes=15,
         )
 
-        assert await fake_redis.get("brute:email:victim@example.com") is None
+        assert await fake_redis.get(f"brute:email:{TENANT}:victim@example.com") is None
 
 
 @pytest.mark.asyncio

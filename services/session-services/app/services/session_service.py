@@ -52,16 +52,17 @@ class SessionService:
         The raw token is never stored.
         """
         # Step 1 — Count the user's active sessions
-        active_count = await self.repo.count_active_by_user(data.user_id)
+        active_count = await self.repo.count_active_by_user(data.user_id, tenant_id=data.tenant_id)
         logger.info("session_create_check", extra={
             "user_id": data.user_id,
+            "tenant_id": data.tenant_id,
             "active_sessions": active_count,
             "max_allowed": settings.max_sessions_per_user,
         })
 
         # Step 2 — If the limit is reached, revoke the oldest active session
         if active_count >= settings.max_sessions_per_user:
-            oldest = await self.repo.get_oldest_active_by_user(data.user_id)
+            oldest = await self.repo.get_oldest_active_by_user(data.user_id, tenant_id=data.tenant_id)
             if oldest:
                 await self.repo.revoke_by_id(oldest.id)
                 logger.info("session_oldest_revoked", extra={

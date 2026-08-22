@@ -10,6 +10,7 @@ class CreateSessionRequest(BaseModel):
     returned by token-service.
     """
     user_id: str
+    tenant_id: str = "00000000-0000-0000-0000-000000000001"
     refresh_token_hash: str      # SHA-256 hash from token-service
     device_info: str | None = None
     expires_at: datetime    # refresh token expiration date

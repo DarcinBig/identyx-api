@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # Protects /tokens/generate and /tokens/revoke from direct network access.
     internal_api_key: str = ""
 
+    # Native tenant ID (multi-tenancy Sub-step B)
+    identyx_native_tenant_id: str = "00000000-0000-0000-0000-000000000001"
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     def get_redis_url(self) -> str:

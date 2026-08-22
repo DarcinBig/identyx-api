@@ -26,7 +26,7 @@ class UserService:
         Creates a new user.
         The profile picture is automatically resolved as "default"
         """
-        if await self.repo.get_by_email(data.email):
+        if await self.repo.get_by_email(data.email, tenant_id=data.tenant_id):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Email already registered",
@@ -36,7 +36,7 @@ class UserService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Username already taken",
             )
-        user = await self.repo.create(data)
+        user = await self.repo.create(data, tenant_id=data.tenant_id)
         return UserResponse.from_user(user)
 
     async def get_user_by_id(self, user_id: str) -> UserResponse:
@@ -48,9 +48,9 @@ class UserService:
             )
         return UserResponse.from_user(user)
 
-    async def get_user_by_email(self, email: str) -> UserResponse:
+    async def get_user_by_email(self, email: str, tenant_id: str | None = None) -> UserResponse:
         """Internal endpoint for auth-service"""
-        user = await self.repo.get_by_email(email)
+        user = await self.repo.get_by_email(email, tenant_id=tenant_id)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -66,7 +66,7 @@ class UserService:
                 detail="User not found",
             )
         if data.email and data.email.lower() != existing_user.email:
-            if await self.repo.get_by_email(data.email):
+            if await self.repo.get_by_email(data.email, tenant_id=existing_user.tenant_id):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Email already registered",
@@ -610,9 +610,17 @@ class UserService:
         # Mark the token as used (single-use)
         await repo.mark_as_used(email_change.id)
 
+        # Fetch the user to get tenant_id for the uniqueness check
+        existing_user = await self.repo.get_by_id(user_id)
+        if not existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found.",
+            )
+
         # The target email could have been taken between the request
         # and the confirmation — check before applying.
-        if await self.repo.get_by_email(email_change.pending_email):
+        if await self.repo.get_by_email(email_change.pending_email, tenant_id=existing_user.tenant_id):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Email already registered.",

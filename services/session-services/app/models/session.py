@@ -32,6 +32,12 @@ class Session(Base):
     __tablename__ = "sessions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        default="00000000-0000-0000-0000-000000000001",
+        index=True,
+    )
     user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     # SHA-256 hash of the raw refresh token
     # Format: 64 hexadecimal characters

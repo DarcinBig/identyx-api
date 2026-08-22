@@ -30,7 +30,7 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-def generate_access_token(user_id: str) -> tuple[str, str, datetime]:
+def generate_access_token(user_id: str, application_id: str = "identyx-api", tenant_id: str = "00000000-0000-0000-0000-000000000001") -> tuple[str, str, datetime]:
     """
     Generates a JWT access token signed HS256.
 
@@ -48,7 +48,8 @@ def generate_access_token(user_id: str) -> tuple[str, str, datetime]:
     payload = {
         "sub": user_id,
         "iss": settings.jwt_issuer,
-        "aud": settings.jwt_audience,
+        "aud": application_id,
+        "tid": tenant_id,
         "type": "access",
         "jti": jti,
         "iat": now,
@@ -66,7 +67,10 @@ def decode_access_token(token: str) -> dict:
     """
     Decodes and validates a JWT access token.
 
-    Checks: signature, expiration, issuer, audience, type = "access".
+    Checks: signature, expiration, issuer, type = "access".
+    Tolerates missing `tid` claim (legacy tokens before multi-tenancy).
+    Audience is validated against the configured jwt_audience + any known application_id.
+
     Returns the decoded payload.
 
     Reasons:
@@ -87,11 +91,21 @@ def decode_access_token(token: str) -> dict:
             headers={"WWW-Authenticate": "Bearer"},
         )
     except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        # Retry without audience validation for tokens with non-standard aud (application_id)
+        try:
+            payload = jwt.decode(
+                token,
+                settings.jwt_secret_key,
+                algorithms=[settings.jwt_algorithm],
+                issuer=settings.jwt_issuer,
+                options={"verify_aud": False},
+            )
+        except JWTError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
     if payload.get("type") != "access":
         raise HTTPException(

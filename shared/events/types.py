@@ -19,6 +19,8 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 
+NATIVE_TENANT_ID = "00000000-0000-0000-0000-000000000001"
+
 # --- Channel names --------------------------------------------
 
 CHANNEL_USER_REGISTERED = "user.registered"
@@ -41,6 +43,7 @@ class UserRegisteredEvent:
     email: str
     username: str
     verification_token: str
+    tenant_id: str = NATIVE_TENANT_ID
     occurred_at: str = ""
 
     def __post_init__(self):
@@ -61,6 +64,7 @@ class UserDeletedEvent:
     """
     user_id: str
     email: str
+    tenant_id: str = NATIVE_TENANT_ID
     occurred_at: str = ""
 
     def __post_init__(self):
@@ -88,6 +92,7 @@ class UserDeletionRequestedEvent:
     email: str
     username: str
     deletion_token: str
+    tenant_id: str = NATIVE_TENANT_ID
     occurred_at: str = ""
 
     def __post_init__(self):
@@ -116,6 +121,7 @@ class UserEmailChangeRequestedEvent:
     email: str
     username: str
     email_change_token: str
+    tenant_id: str = NATIVE_TENANT_ID
     occurred_at: str = ""
 
     def __post_init__(self):
@@ -137,6 +143,7 @@ class AuthLoginEvent:
     """
     user_id: str
     email: str
+    tenant_id: str = NATIVE_TENANT_ID
     occurred_at: str = ""
 
     def __post_init__(self):
@@ -153,7 +160,7 @@ class AuthLoginEvent:
 @dataclass
 class AuthSuspiciousLoginEvent:
     """
-    Published by the auth-service after a successful login
+    Published by auth-service after a successful login
     following several failed attempts.
     Consumed by email-service to send a security email
     containing a password reset link.
@@ -166,6 +173,7 @@ class AuthSuspiciousLoginEvent:
     username: str
     failed_attempts: int
     reset_token: str
+    tenant_id: str = NATIVE_TENANT_ID
     occurred_at: str = ""
 
     def __post_init__(self):
@@ -191,6 +199,7 @@ class NewLoginEvent:
     username: str
     device_info: str
     client_ip: str
+    tenant_id: str = NATIVE_TENANT_ID
     occurred_at: str = ""
 
     def __post_init__(self):

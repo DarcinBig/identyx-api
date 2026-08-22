@@ -25,6 +25,7 @@ class SessionRepository:
         """Insert a new session into the database"""
         session = Session(
             id=str(uuid.uuid4()),
+            tenant_id=data.tenant_id,
             user_id=data.user_id,
             refresh_token_hash=data.refresh_token_hash,
             device_info=data.device_info,
@@ -49,48 +50,57 @@ class SessionRepository:
         result = await self.db.execute(select(Session).where(Session.refresh_token_hash == token_hash))
         return result.scalar_one_or_none()
 
-    async def get_active_by_user(self, user_id: str) -> list[Session]:
+    async def get_active_by_user(self, user_id: str, tenant_id: str | None = None) -> list[Session]:
         """
         Retrieve all active sessions for a user
         Actives = non-revoked and non-expired sessions
         """
         now = datetime.now(UTC)
+        conditions = [
+            Session.user_id == user_id,
+            Session.is_revoked == False,  # noqa: E712
+            Session.expires_at > now,
+        ]
+        if tenant_id is not None:
+            conditions.append(Session.tenant_id == tenant_id)
         result = await self.db.execute(
             select(Session)
-            .where(
-                Session.user_id == user_id,
-                Session.is_revoked == False,  # noqa: E712
-                Session.expires_at > now,
-            )
+            .where(*conditions)
             .order_by(Session.created_at.desc())
         )
         return list(result.scalars().all())
 
-    async def count_active_by_user(self, user_id: str) -> int:
+    async def count_active_by_user(self, user_id: str, tenant_id: str | None = None) -> int:
         """Count the number of active sessions for a user"""
         now = datetime.now(UTC)
+        conditions = [
+            Session.user_id == user_id,
+            Session.is_revoked == False,  # noqa: E712
+            Session.expires_at > now,
+        ]
+        if tenant_id is not None:
+            conditions.append(Session.tenant_id == tenant_id)
         result = await self.db.execute(
-            select(func.count(Session.id)).where(
-                Session.user_id == user_id,
-                Session.is_revoked == False,  # noqa: E712
-                Session.expires_at > now,
-            )
+            select(func.count(Session.id)).where(*conditions)
         )
         return result.scalar_one()
 
-    async def get_oldest_active_by_user(self, user_id: str) -> Session | None:
+    async def get_oldest_active_by_user(self, user_id: str, tenant_id: str | None = None) -> Session | None:
         """
         Retrieve the oldest active session for a user.
         Used to revoke the oldest session when the limit is reached.
         """
         now = datetime.now(UTC)
+        conditions = [
+            Session.user_id == user_id,
+            Session.is_revoked == False,  # noqa: E712
+            Session.expires_at > now,
+        ]
+        if tenant_id is not None:
+            conditions.append(Session.tenant_id == tenant_id)
         result = await self.db.execute(
             select(Session)
-            .where(
-                Session.user_id == user_id,
-                Session.is_revoked == False,  # noqa: E712
-                Session.expires_at > now,
-            )
+            .where(*conditions)
             .order_by(Session.created_at.asc())
             .limit(1)
         )

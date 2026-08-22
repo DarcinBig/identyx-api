@@ -31,6 +31,8 @@ class TokenService:
         """
         access_token, jti, expires_at = generate_access_token(
             user_id=data.user_id,
+            application_id=data.application_id,
+            tenant_id=data.tenant_id,
         )
 
         now = datetime.now(UTC)
@@ -76,6 +78,8 @@ class TokenService:
             valid=True,
             user_id=user_id,
             jti=jti,
+            application_id=payload.get("aud"),
+            tenant_id=payload.get("tid"),
         )
 
     async def revoke(self, data: RevokeTokenRequest) -> RevokeTokenResponse:

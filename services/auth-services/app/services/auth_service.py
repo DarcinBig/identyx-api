@@ -23,6 +23,7 @@ from app.events.types import (
     CHANNEL_USER_DELETED,
     CHANNEL_USER_DELETION_REQUESTED,
     CHANNEL_USER_EMAIL_CHANGE_REQUESTED,
+    CHANNEL_USER_EMAIL_CHANGED,
     CHANNEL_USER_REGISTERED,
     AuthLoginEvent,
     AuthSuspiciousLoginEvent,
@@ -30,6 +31,7 @@ from app.events.types import (
     UserDeletedEvent,
     UserDeletionRequestedEvent,
     UserEmailChangeRequestedEvent,
+    UserEmailChangedEvent,
     UserRegisteredEvent,
 )
 from app.repositories.credential_repo import CredentialRepository
@@ -102,6 +104,7 @@ class AuthService:
                         "email": data.email,
                         "username": data.username,
                         "password": data.password,
+                        "tenant_id": settings.identyx_native_tenant_id,
                         # The password is sent for rule validation
                         # in the user-service schema, but it will not be
                         # stored there — only the auth-service stores the hash
@@ -139,7 +142,10 @@ class AuthService:
             try:
                 response = await client.get(
                     f"{settings.user_service_url}/users/internal/by-email",
-                    params={"email": email},
+                    params={
+                        "email": email,
+                        "tenant_id": settings.identyx_native_tenant_id,
+                    },
                 )
             except httpx.ConnectError:
                 raise HTTPException(
@@ -455,6 +461,7 @@ class AuthService:
             email=email,
             username=username,
             deletion_token=deletion_token,
+            tenant_id=settings.identyx_native_tenant_id,
         )
         await event_publisher.publish(CHANNEL_USER_DELETION_REQUESTED, event)
 
@@ -477,7 +484,11 @@ class AuthService:
             )
             return
 
-        event = UserDeletedEvent(user_id=user_id, email=email)
+        event = UserDeletedEvent(
+            user_id=user_id,
+            email=email,
+            tenant_id=settings.identyx_native_tenant_id,
+        )
         await event_publisher.publish(CHANNEL_USER_DELETED, event)
 
     async def _store_email_change_token(
@@ -584,8 +595,39 @@ class AuthService:
             email=email,
             username=username,
             email_change_token=email_change_token,
+            tenant_id=settings.identyx_native_tenant_id,
         )
         await event_publisher.publish(CHANNEL_USER_EMAIL_CHANGE_REQUESTED, event)
+
+    async def _publish_email_changed(
+        self,
+        user_id: str,
+        email: str,
+        username: str,
+        old_email: str,
+    ) -> None:
+        """
+        Publishes user.email_changed to Kafka.
+        Email-service sends a notification to the NEW email address
+        confirming the change was successful.
+        """
+        from app.main import event_publisher
+
+        if not event_publisher:
+            logger.warning(
+                "publish_skipped_no_publisher",
+                extra={"topic": CHANNEL_USER_EMAIL_CHANGED},
+            )
+            return
+
+        event = UserEmailChangedEvent(
+            user_id=user_id,
+            email=email,
+            username=username,
+            old_email=old_email,
+            tenant_id=settings.identyx_native_tenant_id,
+        )
+        await event_publisher.publish(CHANNEL_USER_EMAIL_CHANGED, event)
 
     async def _generate_and_store_reset_token(self, user_id: str) -> str:
         """
@@ -616,7 +658,11 @@ class AuthService:
             try:
                 response = await client.post(
                     f"{settings.token_service_url}/tokens/generate",
-                    json={"user_id": user_id},
+                    json={
+                        "user_id": user_id,
+                        "application_id": "identyx-api",
+                        "tenant_id": settings.identyx_native_tenant_id,
+                    },
                 )
             except httpx.ConnectError:
                 raise HTTPException(
@@ -681,6 +727,7 @@ class AuthService:
                     f"{settings.session_service_url}/sessions/create",
                     json={
                         "user_id": user_id,
+                        "tenant_id": settings.identyx_native_tenant_id,
                         "refresh_token_hash": refresh_token_hash,
                         "device_info": device_info,
                         "expires_at": expires_at.isoformat(),
@@ -877,6 +924,7 @@ class AuthService:
             email=email,
             username=username,
             verification_token=verification_token,
+            tenant_id=settings.identyx_native_tenant_id,
         )
 
         await event_publisher.publish(CHANNEL_USER_REGISTERED, event)
@@ -922,6 +970,7 @@ class AuthService:
             email=data.email,
             ip=client_ip,
             redis_url=settings.brute_force_redis_url,
+            tenant_id=settings.identyx_native_tenant_id,
             max_attempts=settings.brute_force_max_attempts,
             lockout_minutes=settings.brute_force_lockout_minutes,
         )
@@ -938,6 +987,7 @@ class AuthService:
                 email=data.email,
                 ip=client_ip,
                 redis_url=settings.brute_force_redis_url,
+                tenant_id=settings.identyx_native_tenant_id,
                 lockout_minutes=settings.brute_force_lockout_minutes,
             )
             raise HTTPException(
@@ -952,6 +1002,7 @@ class AuthService:
                 email=data.email,
                 ip=client_ip,
                 redis_url=settings.brute_force_redis_url,
+                tenant_id=settings.identyx_native_tenant_id,
                 lockout_minutes=settings.brute_force_lockout_minutes,
             )
             raise HTTPException(
@@ -964,6 +1015,7 @@ class AuthService:
         failed_attempts = await self._get_failed_attempts_count(
             email=data.email,
             ip=client_ip,
+            tenant_id=settings.identyx_native_tenant_id,
         )
 
         # Success — resets the brute-force counter
@@ -971,6 +1023,7 @@ class AuthService:
             email=data.email,
             ip=client_ip,
             redis_url=settings.brute_force_redis_url,
+            tenant_id=settings.identyx_native_tenant_id,
         )
 
         # Step 4 — Update the hash if necessary (need_hash)
@@ -1048,7 +1101,11 @@ class AuthService:
         if not event_publisher:
             return
 
-        event = AuthLoginEvent(user_id=user_id, email=email)
+        event = AuthLoginEvent(
+            user_id=user_id,
+            email=email,
+            tenant_id=settings.identyx_native_tenant_id,
+        )
         await event_publisher.publish(CHANNEL_AUTH_LOGIN, event)
 
     async def _publish_new_login(
@@ -1074,6 +1131,7 @@ class AuthService:
             username=username,
             device_info=device_info,
             client_ip=client_ip,
+            tenant_id=settings.identyx_native_tenant_id,
         )
         await event_publisher.publish(CHANNEL_AUTH_NEW_LOGIN, event)
 
@@ -1081,6 +1139,7 @@ class AuthService:
             self,
             email: str,
             ip: str,
+            tenant_id: str = "00000000-0000-0000-0000-000000000001",
     ) -> int:
         """
         Reads the current brute-force counter for the email key.
@@ -1094,6 +1153,7 @@ class AuthService:
             email=email,
             ip=ip,
             redis_url=settings.brute_force_redis_url,
+            tenant_id=tenant_id,
         )
 
     async def _publish_auth_suspicious(
@@ -1122,6 +1182,7 @@ class AuthService:
             username=username,
             failed_attempts=failed_attempts,
             reset_token=reset_token,
+            tenant_id=settings.identyx_native_tenant_id,
         )
         await event_publisher.publish(CHANNEL_AUTH_SUSPICIOUS, event)
 
@@ -1630,15 +1691,30 @@ class AuthService:
                 detail="Invalid or expired email change token.",
             )
 
+        # Fetch user profile BEFORE the change to get old_email + username
+        user_profile = await self._get_user_by_id(user_id)
+        old_email = user_profile["email"]
+        username = user_profile["username"]
+
         # Step 3 — Mark used + apply the pending email (atomic)
         result = await self._confirm_email_change(
             user_id=user_id,
             raw_token=raw_token,
         )
 
+        new_email = result.get("email", "")
+
         logger.info("email_change_confirmed", extra={
             "user_id": user_id,
-            "new_email": result.get("email", ""),
+            "new_email": new_email,
         })
+
+        # Step 4 — Publish notification to the new email address
+        await self._publish_email_changed(
+            user_id=user_id,
+            email=new_email,
+            username=username,
+            old_email=old_email,
+        )
 
         return MessageResponse(message="Email address updated successfully.")
