@@ -22,16 +22,16 @@ from app.events.types import (
     CHANNEL_AUTH_SUSPICIOUS,
     CHANNEL_USER_DELETED,
     CHANNEL_USER_DELETION_REQUESTED,
-    CHANNEL_USER_EMAIL_CHANGED,
     CHANNEL_USER_EMAIL_CHANGE_REQUESTED,
+    CHANNEL_USER_EMAIL_CHANGED,
     CHANNEL_USER_REGISTERED,
     AuthLoginEvent,
     AuthSuspiciousLoginEvent,
     NewLoginEvent,
     UserDeletedEvent,
     UserDeletionRequestedEvent,
-    UserEmailChangeRequestedEvent,
     UserEmailChangedEvent,
+    UserEmailChangeRequestedEvent,
     UserRegisteredEvent,
 )
 from app.repositories.credential_repo import CredentialRepository

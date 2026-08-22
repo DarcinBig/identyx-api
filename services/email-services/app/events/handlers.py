@@ -10,14 +10,14 @@ from app.events.types import (
     AuthSuspiciousLoginEvent,
     NewLoginEvent,
     UserDeletionRequestedEvent,
-    UserEmailChangeRequestedEvent,
     UserEmailChangedEvent,
+    UserEmailChangeRequestedEvent,
     UserRegisteredEvent,
 )
 from app.schemas.email import (
     SendAccountDeletionEmailRequest,
-    SendEmailChangeEmailRequest,
     SendEmailChangedNotificationRequest,
+    SendEmailChangeEmailRequest,
     SendNewLoginEmailRequest,
     SendSecurityAlertEmailRequest,
     SendVerificationEmailRequest,

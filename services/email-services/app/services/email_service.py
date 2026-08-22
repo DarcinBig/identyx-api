@@ -16,8 +16,8 @@ from app.providers.smtp import send_email
 from app.schemas.email import (
     EmailSentResponse,
     SendAccountDeletionEmailRequest,
-    SendEmailChangeEmailRequest,
     SendEmailChangedNotificationRequest,
+    SendEmailChangeEmailRequest,
     SendNewLoginEmailRequest,
     SendResetPasswordEmailRequest,
     SendSecurityAlertEmailRequest,
