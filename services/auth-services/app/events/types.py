@@ -159,7 +159,7 @@ class UserEmailChangedEvent:
         return json.dumps(asdict(self))
 
     @classmethod
-    def from_json(cls, data: str) -> "UserEmailChangedEvent":
+    def from_json(cls, data: str) -> UserEmailChangedEvent:
         return cls(**json.loads(data))
 
 @dataclass
