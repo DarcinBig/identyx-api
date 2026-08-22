@@ -40,6 +40,7 @@ async def check_brute_force(
     email: str,
     ip: str,
     redis_url: str,
+    tenant_id: str = "00000000-0000-0000-0000-000000000001",
     max_attempts: int = 5,
     lockout_minutes: int = 15,
 ) -> None:
@@ -52,8 +53,8 @@ async def check_brute_force(
     try:
         redis = await get_brute_force_redis(redis_url)
 
-        email_key = f"brute:email:{email.lower()}"
-        ip_key = f"brute:ip:{ip}"
+        email_key = f"brute:email:{tenant_id}:{email.lower()}"
+        ip_key = f"brute:ip:{tenant_id}:{ip}"
 
         # Check the lockout status on the email
         email_attempts = await redis.get(email_key)
@@ -101,6 +102,7 @@ async def record_failed_attempt(
     email: str,
     ip: str,
     redis_url: str,
+    tenant_id: str = "00000000-0000-0000-0000-000000000001",
     lockout_minutes: int = 15,
 ) -> None:
     """
@@ -112,8 +114,8 @@ async def record_failed_attempt(
         redis = await get_brute_force_redis(redis_url)
         lockout_seconds = lockout_minutes * 60
 
-        email_key = f"brute:email:{email.lower()}"
-        ip_key = f"brute:ip:{ip}"
+        email_key = f"brute:email:{tenant_id}:{email.lower()}"
+        ip_key = f"brute:ip:{tenant_id}:{ip}"
 
         pipe = redis.pipeline()
         pipe.incr(email_key)
@@ -135,6 +137,7 @@ async def get_failed_attempts_count(
     email: str,
     ip: str,
     redis_url: str,
+    tenant_id: str = "00000000-0000-0000-0000-000000000001",
 ) -> int:
     """
     Reads the current failed-attempt counter for the email key.
@@ -146,7 +149,7 @@ async def get_failed_attempts_count(
     """
     try:
         redis = await get_brute_force_redis(redis_url)
-        count = await redis.get(f"brute:email:{email.lower()}")
+        count = await redis.get(f"brute:email:{tenant_id}:{email.lower()}")
         return int(count) if count else 0
     except Exception as exc:
         logger.warning("Brute force counter read failed: %s", exc)
@@ -157,6 +160,7 @@ async def reset_brute_force(
     email: str,
     ip: str,
     redis_url: str,
+    tenant_id: str = "00000000-0000-0000-0000-000000000001",
 ) -> None:
     """
     Resets the counters after a successful login.
@@ -164,8 +168,8 @@ async def reset_brute_force(
     try:
         redis = await get_brute_force_redis(redis_url)
         await redis.delete(
-            f"brute:email:{email.lower()}",
-            f"brute:ip:{ip}",
+            f"brute:email:{tenant_id}:{email.lower()}",
+            f"brute:ip:{tenant_id}:{ip}",
         )
         logger.info(
             "Brute force reset after successful login: email=%s",

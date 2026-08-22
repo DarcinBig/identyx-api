@@ -7,6 +7,8 @@ class GenerateTokenRequest(BaseModel):
     Called by the auth-service after successful login or registration.
     """
     user_id: str
+    application_id: str = "identyx-api"
+    tenant_id: str = "00000000-0000-0000-0000-000000000001"
 
 class VerifyTokenRequest(BaseModel):
     """
@@ -40,6 +42,8 @@ class VerifyTokenResponse(BaseModel):
     valid: bool
     user_id: str | None = None
     jti: str | None = None
+    application_id: str | None = None
+    tenant_id: str | None = None
 
 class RevokeTokenResponse(BaseModel):
     """Confirmation of revocation."""

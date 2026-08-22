@@ -122,6 +122,7 @@ services:
       BRUTE_FORCE_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/2
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      IDENTYX_NATIVE_TENANT_ID: ${IDENTYX_NATIVE_TENANT_ID:-00000000-0000-0000-0000-000000000001}
     depends_on:
       postgres-auth:
         condition: service_healthy
@@ -163,6 +164,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: identyx_users
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      IDENTYX_NATIVE_TENANT_ID: ${IDENTYX_NATIVE_TENANT_ID:-00000000-0000-0000-0000-000000000001}
     depends_on:
       postgres-users:
         condition: service_healthy
@@ -201,6 +203,7 @@ services:
       POSTGRES_DB: identyx_sessions
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/${REDIS_DB}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      IDENTYX_NATIVE_TENANT_ID: ${IDENTYX_NATIVE_TENANT_ID:-00000000-0000-0000-0000-000000000001}
     depends_on:
       postgres-sessions:
         condition: service_healthy
@@ -237,6 +240,7 @@ services:
       PYTHONUNBUFFERED: "1"
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/${REDIS_DB}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      IDENTYX_NATIVE_TENANT_ID: ${IDENTYX_NATIVE_TENANT_ID:-00000000-0000-0000-0000-000000000001}
     depends_on:
       redis:
         condition: service_healthy

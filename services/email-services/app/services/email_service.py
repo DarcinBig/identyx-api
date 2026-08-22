@@ -16,6 +16,7 @@ from app.providers.smtp import send_email
 from app.schemas.email import (
     EmailSentResponse,
     SendAccountDeletionEmailRequest,
+    SendEmailChangedNotificationRequest,
     SendEmailChangeEmailRequest,
     SendNewLoginEmailRequest,
     SendResetPasswordEmailRequest,
@@ -313,6 +314,44 @@ class EmailService:
 
         return EmailSentResponse(
             message="Email change email sent." if sent else "Failed to send email change email.",
+            email=data.email,
+            sent=sent,
+        )
+
+    async def send_email_changed_notification(
+        self, data: SendEmailChangedNotificationRequest
+    ) -> EmailSentResponse:
+        """
+        Sends a notification that the email address was successfully changed.
+        Sent to the NEW address after the email change is confirmed.
+        """
+        template = _jinja_env.get_template("email_changed.html")
+        html_content = template.render(
+            username=data.username,
+            email=data.email,
+            old_email=data.old_email,
+            year=datetime.now().year,
+        )
+
+        text_content = (
+            f"Hi {data.username},\n\n"
+            f"Your email address has been successfully updated.\n\n"
+            f"Previous email: {data.old_email}\n"
+            f"New email: {data.email}\n\n"
+            f"All future correspondence will be sent to your new address.\n"
+            f"If you did not make this change, please contact our support team immediately.\n\n"
+            f"— The Identyx team"
+        )
+
+        sent = await send_email(
+            to_email=data.email,
+            subject="Your email has been updated — Identyx",
+            html_content=html_content,
+            text_content=text_content,
+        )
+
+        return EmailSentResponse(
+            message="Email changed notification sent." if sent else "Failed to send email changed notification.",
             email=data.email,
             sent=sent,
         )

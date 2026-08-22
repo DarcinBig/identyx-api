@@ -9,7 +9,7 @@
                          |___/      
 ```
 
-> Authentication & Identity API — **V1.1.0**
+> Authentication & Identity API — **V1.1.1**
 
 [![CI](https://github.com/DarcinBig/identyx-api/actions/workflows/ci.yml/badge.svg)](https://github.com/DarcinBig/identyx-api/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -37,7 +37,10 @@ scalability and seamless integration across web and mobile applications.
 | **Brute-force protection & suspicious-login alerts** | ✅ Done |
 | **GDPR account deletion (email-confirmed)** | ✅ Done |
 | **Email change with re-verification** | ✅ Done |
+| **Email change notification (new address)** | ✅ Done |
 | **Password confirmation on sensitive actions** | ✅ Done |
+| **Multi-tenancy (tenant-scoped isolation)** | ✅ Done |
+| **TRUST_PROXY for correct IP detection behind reverse proxies** | ✅ Done |
 | **Prometheus metrics + Grafana dashboards** | ✅ Done |
 | **OpenTelemetry distributed traces (Tempo)** | ✅ Done |
 | **Third-party application registry & API keys** | ✅ Done |
@@ -119,7 +122,7 @@ release.
 | **user-service** | `8001` | User profiles, avatar upload (JPEG/PNG/WebP ≤ 5 MB), one-time token storage (verification, reset, deletion, email-change); internal endpoints for auth-service |
 | **token-service** | `8003` | JWT generation, verification (incl. `iss`/`aud`) and blacklisting (Redis DB 0). Internal only |
 | **session-service** | `8004` | Session lifecycle, single-use refresh-token rotation, multi-device limit (oldest session revoked) |
-| **email-service** | `8005` | Consumes Kafka events and sends transactional emails (verification, security alert, new-login alert with IP geolocation, deletion & email-change confirmations) |
+| **email-service** | `8005` | Consumes Kafka events and sends transactional emails (verification, security alert, new-login alert with IP geolocation, deletion & email-change confirmations, post-change notification) |
 | **application-service** | `8006` | Third-party application registry + API keys (`pk_live_…` / `sk_live_…`, Stripe-aligned); Redis-cached key verification (DB 3) with active cache invalidation on revoke. Internal only — gateway wiring prepared |
 | **redpanda** | `9092` | Kafka-compatible message broker for async events |
 | **redis** | `6379` | Token blacklist (DB 0), service state (DB 1), rate limiting & brute-force counters (DB 2) |
@@ -176,6 +179,7 @@ request (defense in depth).
 | `auth.suspicious` | Login after near-lockout failures | email-service → security alert + reset link |
 | `user.deletion_requested` | Account deletion requested | email-service → confirmation link (24 h, single use) |
 | `user.email_change_requested` | Email change requested | email-service → confirmation link to the **new** address (24 h, single use) |
+| `user.email_changed` | Email change confirmed | email-service → notification email to the new address |
 
 The event stream decouples the auth-service from email delivery: if the
 email-service is down, messages persist in Redpanda and are consumed later.
@@ -212,10 +216,10 @@ Each service owns **its** database and never writes to another service's store:
 | **Password hashing** | auth-service | Argon2id (with silent rehash on param upgrades) |
 | **JWT** | token-service | HS256, signed with `JWT_SECRET_KEY`; `iss=identyx`, `aud=identyx-api`; access token `30 min`, refresh token `7 days` |
 | **Refresh-token rotation** | session-service | Refresh tokens are single-use; each refresh rotates the hash, so a stolen token is invalidated on first use |
-| **Brute-force protection** | auth-service | 5 failed attempts → 15 min lockout (Redis DB 2, keyed per account, IP-independent); near-threshold logins raise a `auth.suspicious` alert |
+| **Brute-force protection** | auth-service | 5 failed attempts → 15 min lockout (Redis DB 2, tenant-scoped keys); near-threshold logins raise a `auth.suspicious` alert |
 | **Password confirmation** | gateway → auth-service | Delete-account, email-change and avatar-delete require the current password (`422` if missing, `403` if wrong) |
 | **Account deletion (GDPR)** | auth-service + user-service | Deletion is **email-confirmed**: a purpose-bound one-time token must be validated before the credential, profile and sessions are removed |
-| **Email change** | auth-service + user-service | New email is stored as `pending_email` and only applied after a purpose-bound one-time token is confirmed (with uniqueness re-check) |
+| **Email change** | auth-service + user-service | New email is stored as `pending_email` and only applied after a purpose-bound one-time token is confirmed (with uniqueness re-check); a notification email is sent to the new address after confirmation |
 | **Anti-enumeration** | auth-service | Unknown email, wrong password and lockout all return the same generic `401`; resend-verification returns a generic message |
 | **One-time tokens** | auth-service + user-service | HMAC signature bound to a `purpose` (`email_verification`, `password_reset`, `delete_account`, `email_change`) + SHA-256 stored hash + expiry (24 h) + single use; a token cannot be replayed across flows |
 | **Internal API** | all services | `X-Internal-Key` shared secret; routes hidden from the OpenAPI schema |
@@ -392,7 +396,7 @@ confirmation link is opened (delivered to the **new** address):
 
 ```
 POST /v1/users/{user_id}/email-change        # + {"password": ..., "new_email": ...}
-POST /v1/auth/confirm-email-change           # + {"token": ...}
+GET  /v1/auth/confirm-email-change?token=...  # browser click (email link)
 ```
 
 | Step | Action | Component |
@@ -400,8 +404,9 @@ POST /v1/auth/confirm-email-change           # + {"token": ...}
 | 1 | Confirm the current password + ownership; reject same/already-registered emails | gateway → auth-service |
 | 2 | Generate an `email_change` one-time token, store its hash, publish `user.email_change_requested` | auth-service → user-service → redpanda |
 | 3 | Send the confirmation link to the new address (24 h, single use) | email-service |
-| 4 | `POST /v1/auth/confirm-email-change` validates the token, re-checks the new email is free | gateway → auth-service |
+| 4 | `GET /v1/auth/confirm-email-change` extracts the token from the query string and validates it | gateway → auth-service |
 | 5 | Apply the new email, mark it verified, mark the token used | auth-service → user-service |
+| 6 | Publish `user.email_changed`; send a notification email to the new address confirming the change | auth-service → email-service |
 
 ---
 
@@ -649,10 +654,10 @@ cp .env.production.example .env
 #        openssl rand -base64 48   # INTERNAL_API_KEY
 
 # 3. Pull the pre-built images (or add `--build` to build locally)
-IMAGE_TAG=V1.1.0 docker compose -f infra/docker-compose.prod.yml pull
+IMAGE_TAG=V1.1.1 docker compose -f infra/docker-compose.prod.yml pull
 
 # 4. Start the stack
-IMAGE_TAG=V1.1.0 docker compose -f infra/docker-compose.prod.yml up -d
+IMAGE_TAG=V1.1.1 docker compose -f infra/docker-compose.prod.yml up -d
 
 # 5. Check health
 curl https://api.identyx.io/health
@@ -702,6 +707,8 @@ Key variables:
 | `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` | Grafana admin credentials | `admin` / `admin` (change in prod) |
 | `OTEL_ENABLED` | Enable OpenTelemetry tracing | `true` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP/HTTP collector (Tempo) | `http://tempo:4318` |
+| `TRUST_PROXY` | Read real client IP from `X-Forwarded-For` when behind a reverse proxy | `false` |
+| `IDENTYX_NATIVE_TENANT_ID` | Default tenant ID for multi-tenancy isolation | `00000000-0000-0000-0000-000000000001` |
 
 ---
 

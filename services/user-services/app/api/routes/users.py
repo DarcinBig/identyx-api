@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -195,14 +195,15 @@ async def get_avatar(
 )
 async def get_user_by_email(
         email: str,
+        tenant_id: str = Query(..., description="Tenant ID (required)"),
         service: UserService = Depends(get_user_service),
         _: None = Depends(require_internal_key),
 ):
     """
     Used by the auth-service during login.
-    GET /users/internal/by-email?email=user@example.com
+    GET /users/internal/by-email?email=user@example.com&tenant_id=xxx
     """
-    return await service.get_user_by_email(email)
+    return await service.get_user_by_email(email, tenant_id=tenant_id)
 
 @router.get(
     "/internal/by-id",

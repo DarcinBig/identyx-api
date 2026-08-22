@@ -237,6 +237,10 @@ class TestEmailChange:
         service._confirm_email_change = AsyncMock(
             return_value={"email": "new@example.com", "confirmed": True}
         )
+        service._get_user_by_id = AsyncMock(
+            return_value={"email": "old@example.com", "username": "testuser"}
+        )
+        service._publish_email_changed = AsyncMock()
 
         with patch(
             "app.services.auth_service.verify_verification_token",

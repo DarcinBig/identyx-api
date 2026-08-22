@@ -64,6 +64,15 @@ class SendEmailChangeEmailRequest(BaseModel):
     username: str
     email_change_token: str   # opaque token for the email change link
 
+class SendEmailChangedNotificationRequest(BaseModel):
+    """
+    Triggers the sending of an email changed notification.
+    Sent to the NEW address after the email change is confirmed.
+    """
+    email: EmailStr
+    username: str
+    old_email: str
+
 # --- Responses -----------------------------------------------
 
 class EmailSentResponse(BaseModel):

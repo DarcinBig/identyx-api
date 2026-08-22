@@ -37,6 +37,13 @@ class PasswordReset(Base):
         index=True,
     )
 
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        default="00000000-0000-0000-0000-000000000001",
+        index=True,
+    )
+
     # SHA-256 hash of the raw token
     # We never store the token in plain text
     token_hash: Mapped[str] = mapped_column(

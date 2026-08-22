@@ -1,4 +1,4 @@
-# Identyx V1.1.0 — API Documentation for Apidog
+# Identyx V1.1.1 — API Documentation for Apidog
 
 ## Table of contents
 
@@ -12,7 +12,7 @@
 8. [Error handling](#8-error-handling)
 9. [Rate limiting](#9-rate-limiting)
 10. [Known limitations of the generated spec](#10-known-limitations-of-the-generated-spec)
-11. [Changelog V1.1.0](#11-changelog-v110)
+11. [Changelog V1.1.1](#11-changelog-v110)
 12. [Maintenance](#12-maintenance)
 
 ---
@@ -397,7 +397,7 @@ Liveness probe (public).
 {
   "service": "gateway",
   "status": "ok",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "uptime_seconds": 1810,
   "services": {
     "auth-service": "ok",
@@ -462,7 +462,7 @@ The `429` response includes `retry_after` (seconds). The brute-force protection
 
 ---
 
-## 11. Changelog V1.1.0
+## 11. Changelog V1.1.1
 
 - **Infrastructure — healthchecks:** Prometheus (`/-/healthy`), Grafana
   (`/api/health`) and Tempo (`/ready`) now ship Docker HTTP healthchecks in both

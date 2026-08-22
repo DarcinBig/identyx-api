@@ -16,10 +16,11 @@ class UserRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create(self, data: UserCreate) -> User:
+    async def create(self, data: UserCreate, tenant_id: str = "00000000-0000-0000-0000-000000000001") -> User:
         """Insert new user data into the database. The password is not stored here"""
         user = User(
             id=str(uuid.uuid4()),
+            tenant_id=tenant_id,
             email=data.email.lower().strip(),
             username=data.username.strip(),
             avatar_url=None,         # Resolved by default in schema
@@ -36,10 +37,11 @@ class UserRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_by_email(self, email: str) -> User | None:
-        result = await self.db.execute(
-            select(User).where(User.email == email.lower().strip())
-        )
+    async def get_by_email(self, email: str, tenant_id: str | None = None) -> User | None:
+        stmt = select(User).where(User.email == email.lower().strip())
+        if tenant_id is not None:
+            stmt = stmt.where(User.tenant_id == tenant_id)
+        result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_by_username(self, username: str) -> User | None:

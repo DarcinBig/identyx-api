@@ -39,6 +39,13 @@ class EmailChange(Base):
         index=True,
     )
 
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        default="00000000-0000-0000-0000-000000000001",
+        index=True,
+    )
+
     # Target email — replaces the user's email on confirmation
     pending_email: Mapped[str] = mapped_column(
         String(255),

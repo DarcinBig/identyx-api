@@ -1,4 +1,4 @@
-"""email-service/app/main.py — V1.1.0"""
+"""email-service/app/main.py — V1.1.1"""
 
 import asyncio
 import logging
@@ -15,6 +15,7 @@ from app.events.handlers import (
     handler_new_login,
     handler_user_deletion_requested,
     handler_user_email_change_requested,
+    handler_user_email_changed,
     handler_user_registered,
 )
 from app.events.subscriber import EventSubscriber
@@ -23,6 +24,7 @@ from app.events.types import (
     CHANNEL_AUTH_SUSPICIOUS,
     CHANNEL_USER_DELETION_REQUESTED,
     CHANNEL_USER_EMAIL_CHANGE_REQUESTED,
+    CHANNEL_USER_EMAIL_CHANGED,
     CHANNEL_USER_REGISTERED,
 )
 from app.metrics.prometheus import MetricsMiddleware, metrics_response
@@ -48,6 +50,7 @@ event_subscriber.on(CHANNEL_AUTH_SUSPICIOUS)(handler_auth_suspicious)
 event_subscriber.on(CHANNEL_AUTH_NEW_LOGIN)(handler_new_login)
 event_subscriber.on(CHANNEL_USER_DELETION_REQUESTED)(handler_user_deletion_requested)
 event_subscriber.on(CHANNEL_USER_EMAIL_CHANGE_REQUESTED)(handler_user_email_change_requested)
+event_subscriber.on(CHANNEL_USER_EMAIL_CHANGED)(handler_user_email_changed)
 
 _listener_task = None
 _listener_started_at: float | None = None
@@ -68,6 +71,7 @@ async def lifespan(app: FastAPI):
             CHANNEL_AUTH_NEW_LOGIN,
             CHANNEL_USER_DELETION_REQUESTED,
             CHANNEL_USER_EMAIL_CHANGE_REQUESTED,
+            CHANNEL_USER_EMAIL_CHANGED,
         ],
     })
 
@@ -94,7 +98,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Identyx Email Service",
     description="Transactional email sending",
-    version="1.1.0",
+    version="1.1.1",
     lifespan=lifespan,
     redirect_slashes=False,
     docs_url="/docs" if settings.debug else None,
@@ -134,7 +138,7 @@ async def health_check():
     return {
         "service": "email-service",
         "status": overall,
-        "version": "1.1.0",
+        "version": "1.1.1",
         "uptime_seconds": uptime_seconds,
         "dependencies": {
             "kafka": settings.kafka_bootstrap_servers,
@@ -145,6 +149,7 @@ async def health_check():
                 CHANNEL_AUTH_NEW_LOGIN,
                 CHANNEL_USER_DELETION_REQUESTED,
                 CHANNEL_USER_EMAIL_CHANGE_REQUESTED,
+                CHANNEL_USER_EMAIL_CHANGED,
             ],
         },
     }
