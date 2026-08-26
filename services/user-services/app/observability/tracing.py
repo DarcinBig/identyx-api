@@ -8,7 +8,7 @@ OpenTelemetry no-op default provider is kept, adding zero overhead.
 Usage in `main.py`:
     from app.observability.tracing import instrument_fastapi, setup_tracing
 
-    setup_tracing(service_name="identyx-auth", version="1.1.1")
+    setup_tracing(service_name="identyx-auth", version="1.1.2")
     instrument_fastapi(app)
 """
 import logging
@@ -16,7 +16,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_SERVICE_VERSION = "1.1.1"
+_DEFAULT_SERVICE_VERSION = "1.1.2"
 
 _OTEL_ENDPOINT_ENV = "OTEL_EXPORTER_OTLP_ENDPOINT"
 _OTEL_ENABLED_ENV = "OTEL_ENABLED"

@@ -1,6 +1,6 @@
 [project]
 name = "gateway"
-version = "1.1.1"
+version = "1.1.2"
 description = "Identyx — API Gateway: single entry point with rate limiting, JWT validation, routing and observability"
 readme = "README.md"
 requires-python = ">=3.14"
