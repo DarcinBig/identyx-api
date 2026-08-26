@@ -40,6 +40,7 @@ PUBLIC_ROUTES: set[tuple[str, str]] = {
     ("GET", "/v1/auth/verify-email"),
     ("POST", "/v1/auth/reset-password"),
     ("GET", "/health"),
+    ("GET", "/ready"),
     ("GET", "/metrics"),
     ("GET", "/docs"),
     ("GET", "/redoc"),
@@ -86,10 +87,21 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
         logger.debug("[JWT] %s %s — public: %s", method, path, _is_public(method, path))
 
+        # API-key-only routes — already authenticated by ApiKeyAuthMiddleware,
+        # skip JWT validation entirely.  The API key provides tenant context;
+        # JWT is not needed for these endpoints.
+        # For protected routes that also carry an API key, JWT is still
+        # required to inject X-User-Id.
+        if request.scope.get("api_key_authenticated"):
+            from app.middleware.api_key_auth import _is_api_key_only
+
+            if _is_api_key_only(method, path):
+                return await call_next(request)
+
         # Public routes — strip caller-supplied security headers before forwarding
         if _is_public(method, path):
             scope = request.scope
-            blocked = {b"x-user-id", b"x-internal-key"}
+            blocked = {b"x-user-id", b"x-internal-key", b"x-identyx-key"}
             scope["headers"] = [
                 (k, v) for k, v in scope["headers"]
                 if k.lower() not in blocked
@@ -144,8 +156,9 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
         # Strip caller-controlled security-sensitive headers (defense in depth):
         # X-User-Id is always recomputed from the validated token, and the
-        # internal API key must never leak from an external client to a service.
-        blocked = {b"x-user-id", b"x-internal-key"}
+        # internal API key and API key must never leak from an external client
+        # to a service.
+        blocked = {b"x-user-id", b"x-internal-key", b"x-identyx-key"}
         headers = [
             (k, v) for k, v in headers
             if k.lower() not in blocked

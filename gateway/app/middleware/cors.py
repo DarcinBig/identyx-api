@@ -23,6 +23,7 @@ def get_cors_config() -> dict:
             "Content-Type",
             "Accept",
             "Origin",
+            "X-Identyx-Key",
         ],
         "expose_headers": [
             "X-Request-Id",
