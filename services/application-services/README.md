@@ -4,11 +4,11 @@ Third-party applications registry and API key resolution for Identyx.
 Port **:8006**. Source of truth for applications and their API keys
 (`pk_live_...` / `sk_live_...`, Stripe-aligned format).
 
-Called only by internal services — it has **no public routes** and is not yet
-proxied by the gateway. The gateway config and both compose files already carry
-`APPLICATION_SERVICE_URL` (`http://application-service:8006`), ready for the
-`/v1/applications/*` proxy routes (staged for the next release). Every API key is
-resolved through the internal `POST /applications/verify-key`.
+Called by the gateway (`ApiKeyAuthMiddleware`) on every request carrying
+`X-Identyx-Key`, and exposes `GET /applications/me` through the gateway's
+`/v1/public/applications/me` route (API key only, no JWT). All other routes
+are protected by `X-Internal-Key` (`require_internal_key`) and hidden from
+the OpenAPI schema (`include_in_schema=False`).
 
 ## Role
 

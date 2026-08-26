@@ -1,4 +1,4 @@
-# Identyx V1.1.1 — API Documentation for Apidog
+# Identyx V1.1.2 — API Documentation for Apidog
 
 ## Table of contents
 
@@ -12,19 +12,19 @@
 8. [Error handling](#8-error-handling)
 9. [Rate limiting](#9-rate-limiting)
 10. [Known limitations of the generated spec](#10-known-limitations-of-the-generated-spec)
-11. [Changelog V1.1.1](#11-changelog-v110)
+11. [Changelog V1.1.2](#11-changelog-v112)
 12. [Maintenance](#12-maintenance)
 
 ---
 
 ## 1. Overview
 
-Identyx exposes a public API through a **FastAPI gateway** that proxies to five
-internal microservices (`auth`, `user`, `session`, `token`, `email`). All public
-routes are versioned under `/v1` and use JSON. A sixth internal service —
-`application-service` (`:8006`, third-party applications & API keys) — runs in
-the stack; its gateway wiring is prepared (`APPLICATION_SERVICE_URL`) and its
-`/v1/applications/*` routes are staged.
+Identyx exposes a public API through a **FastAPI gateway** that proxies to six
+internal microservices (`auth`, `user`, `session`, `token`, `email`, `application`).
+All public routes are versioned under `/v1` and use JSON. The `application-service`
+(`:8006`, third-party applications & API keys) is wired into the gateway via
+`ApiKeyAuthMiddleware`; its `GET /v1/public/applications/me` route is live
+(API key only, no JWT).
 
 The gateway is a pass-through: request/response payloads are defined by the internal
 services and are not re-declared in the OpenAPI specification. This document therefore
@@ -55,12 +55,14 @@ complete request/response examples are provided in [section 7](#7-complete-endpo
    - Options: uncheck *“Create automatic test cases”* (document first),
      check *“Keep operationIds”*.
 3. **Verify the import**
-   - The collection must contain **18 operations**:
+   - The collection must contain **19 operations**:
      - `auth` (7): register, login, logout, refresh, verify-email, reset-password, resend-verification
      - `users` (7): me, user-id, update, delete, upload-avatar, avatar-url, reset-avatar
      - `sessions` (3): index, revoke-all, delete
+     - `public` (1): applications/me
      - `observability` (1): check (`/health`)
    - The 11 protected operations must show a **lock 🔒** (`HTTPBearer` scheme).
+   - The 1 public API key operation must show a **key 🔑** (`X-Identyx-Key` header).
 
 ---
 
@@ -83,6 +85,21 @@ Create two environments: **Icons → Manage environments → + Add**.
 ## 5. Authentication & token script
 
 Protected endpoints expect `Authorization: Bearer <access_token>`.
+API-key-only endpoints expect `X-Identyx-Key: <key>`.
+
+### 5.1 API key authentication
+
+Third-party applications authenticate via the `X-Identyx-Key` header.
+Two key types exist:
+
+| Key type | Prefix | Usage |
+|----------|--------|-------|
+| Publishable | `pk_live_` | Client-side (CORS-safe, identifies the application) |
+| Secret | `sk_live_` | Server-side (full access) |
+
+API-key-only endpoints (e.g. `GET /v1/public/applications/me`) do not require
+a JWT. Protected endpoints (e.g. `GET /v1/users/me`) can accept both headers —
+JWT provides user identity, API key provides tenant context.
 
 ### 5.1 Post-response script (auto-token)
 
@@ -155,6 +172,8 @@ Identyx
 │   ├── GET    /v1/sessions/
 │   ├── DELETE /v1/sessions/revoke-all
 │   └── DELETE /v1/sessions/{session_id}
+├── Public (API key)
+│   └── GET  /v1/public/applications/me    🔑
 └── Operational
     └── GET /health  🔓
 ```
@@ -397,7 +416,7 @@ Liveness probe (public).
 {
   "service": "gateway",
   "status": "ok",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "uptime_seconds": 1810,
   "services": {
     "auth-service": "ok",
@@ -462,7 +481,25 @@ The `429` response includes `retry_after` (seconds). The brute-force protection
 
 ---
 
-## 11. Changelog V1.1.1
+## 11. Changelog V1.1.2
+
+- **API key authentication (Sub-step C):** `ApiKeyAuthMiddleware` resolves
+  `X-Identyx-Key` via application-service `/applications/verify-key`; injects
+  `X-Tenant-Id` + `X-Application-Id`; skips JWT for API-key-only routes.
+- **Public application introspection:** `GET /v1/public/applications/me`
+  (API key only, no JWT) returns non-sensitive metadata for the presented key.
+- **JWT + API key combined:** protected routes (e.g. `/v1/users/me`) accept
+  both `Authorization: Bearer` and `X-Identyx-Key` — JWT is still validated
+  for user identity, API key provides tenant context.
+- **Middleware chain reordered:** `ApiKeyAuthMiddleware` wraps `JWTAuthMiddleware`
+  so it executes first and can set `scope["api_key_authenticated"]`.
+- **CORS:** `X-Identyx-Key` added to allowed CORS headers.
+- **Seed script:** `scripts/seed_native_application.py` creates the
+  `identyx-native` application with publishable + secret key pair (idempotent).
+- **Security headers:** `X-Identyx-Key` is stripped from forwarded requests
+  on both public and protected routes (defense in depth).
+
+### Previous release (V1.1.1)
 
 - **Infrastructure — healthchecks:** Prometheus (`/-/healthy`), Grafana
   (`/api/health`) and Tempo (`/ready`) now ship Docker HTTP healthchecks in both
