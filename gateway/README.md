@@ -6,11 +6,12 @@ gateway; internal services are never reachable directly from outside.
 ## Role
 
 - **Reverse proxy** — routes `/v1/auth/*`, `/v1/users/*`, `/v1/sessions/*` to the
-  corresponding internal services. The config already carries
-  `APPLICATION_SERVICE_URL` (application-service `:8006`) in preparation for the
-  `/v1/applications/*` routes (staged for the next release).
+  corresponding internal services and `/v1/public/*` to the application-service.
 - **JWT validation** — verifies the access token before forwarding, then injects
   the `X-User-Id` header used downstream.
+- **API key resolution** — resolves `X-Identyx-Key` via the application-service
+  (`/applications/verify-key`), injects `X-Tenant-Id` + `X-Application-Id`,
+  and skips JWT for API-key-only routes.
 - **Rate limiting** — Redis-backed, per-IP limits on global traffic and on
   sensitive routes (login, register, password reset, email verification).
 - **Operational endpoints** — `/health` (with downstream probes) and `/metrics`
@@ -33,6 +34,7 @@ gateway; internal services are never reachable directly from outside.
 | `/v1/auth/*` | mixed | Registration, login, logout, refresh, email verification, password reset |
 | `/v1/users/*` | JWT | Profile & avatar management |
 | `/v1/sessions/*` | JWT | Session listing and revocation |
+| `/v1/public/applications/me` | API key | Application metadata for the presented key |
 | `/health` | — | Liveness + readiness of downstream services |
 | `/metrics` | — | Prometheus metrics |
 | `/docs`, `/openapi.json` | — | Swagger UI + OpenAPI spec (dev only) |
@@ -100,9 +102,18 @@ app/
 ├── routes/
 │   ├── auth.py      # /v1/auth/* proxy
 │   ├── users.py     # /v1/users/* proxy
-│   └── sessions.py  # /v1/sessions/* proxy
-├── middleware/      # rate limiting, CORS
-└── services/        # httpx clients to internal services
+│   ├── sessions.py  # /v1/sessions/* proxy
+│   └── public.py    # /v1/public/applications/me (API key only)
+├── middleware/
+│   ├── api_key_auth.py  # API key resolution (X-Identyx-Key → X-Tenant-Id)
+│   ├── jwt_auth.py      # JWT validation + X-User-Id injection
+│   ├── rate_limit.py    # Redis sliding-window rate limiting
+│   ├── cors.py          # CORS allow-list
+│   ├── security_headers.py
+│   ├── logging.py
+│   └── errors.py
+└── observability/
+    └── tracing.py   # OpenTelemetry setup
 ```
 
 Full API documentation: [`docs/api/APIDOG.md`](../docs/api/APIDOG.md).

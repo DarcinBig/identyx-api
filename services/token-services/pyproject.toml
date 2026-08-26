@@ -1,6 +1,6 @@
 [project]
 name = "token-services"
-version = "1.1.1"
+version = "1.1.2"
 description = "Identyx — Token service: JWT generation, verification and blacklisting"
 readme = "README.md"
 requires-python = ">=3.14"

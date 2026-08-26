@@ -9,7 +9,7 @@
                          |___/      
 ```
 
-> Authentication & Identity API — **V1.1.1**
+> Authentication & Identity API — **V1.1.2**
 
 [![CI](https://github.com/DarcinBig/identyx-api/actions/workflows/ci.yml/badge.svg)](https://github.com/DarcinBig/identyx-api/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -44,6 +44,7 @@ scalability and seamless integration across web and mobile applications.
 | **Prometheus metrics + Grafana dashboards** | ✅ Done |
 | **OpenTelemetry distributed traces (Tempo)** | ✅ Done |
 | **Third-party application registry & API keys** | ✅ Done |
+| **API key authentication (X-Identyx-Key)** | ✅ Done |
 | **CI: lint, unit tests, E2E suite** | ✅ Done |
 | **OAuth 2.0 providers (Google, GitHub, …)** | 🔜 Planned |
 | **Passkeys (WebAuthn)** | 🔜 Planned |
@@ -59,9 +60,8 @@ Identyx follows an **API Gateway + microservices** pattern. A single gateway is
 the only externally reachable component; it authenticates every request and
 proxies it to one of **5 services**, each owning its own data store. A sixth —
 `application-service` (`:8006`, third-party application registry & API keys) —
-runs in the stack and is already wired into the gateway config
-(`APPLICATION_SERVICE_URL`); its public proxy routes are staged for the next
-release.
+runs in the stack and is wired into the gateway via `ApiKeyAuthMiddleware`;
+its public proxy route (`/v1/public/applications/me`) is live.
 
 ```
                                 ┌─────────────────────┐
@@ -71,9 +71,10 @@ release.
                                            ▼
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
 │                                  GATEWAY  ·  :8100                                  │
-│ SecurityHeaders → RateLimit → Metrics → CORS → Logging → Errors → JWT Auth          │
+│ SecurityHeaders → RateLimit → Metrics → ApiKeyAuth → JWTAuth → Logging → Errors → CORS          │
 │ · Redis sliding-window rate limiting                                                │
 │    (login 10/min · register 5/min · refresh 20/min · global 100/min)                │
+│ · API key resolution via application-service (X-Identyx-Key header)                  │
 │ · JWT validation via token-service + X-User-Id injection                            │
 └────┬────────────────┬────────────────┬────────────────┬────────────────┬────────────┘
      │                │                │                │                │
@@ -104,12 +105,15 @@ release.
 
 1. A request enters the gateway on `:8100`.
 2. The gateway applies the middleware chain (security headers, rate limit,
-   metrics, CORS, logging, error handling, JWT auth).
-3. For protected routes, the gateway validates the JWT through the
+   metrics, API key resolution, JWT auth, CORS, logging, error handling).
+3. If `X-Identyx-Key` is present, the gateway resolves it via the
+   application-service and injects `X-Tenant-Id` + `X-Application-Id`.
+4. For protected routes, the gateway validates the JWT through the
    **token-service** (`POST /tokens/verify`) and injects `X-User-Id`.
-4. The request is proxied to the owning service (`/v1/auth/*` → auth-service,
-   `/v1/users/*` → user-service, `/v1/sessions/*` → session-service).
-5. Services collaborate **synchronously** (HTTP + `X-Internal-Key`) for
+5. The request is proxied to the owning service (`/v1/auth/*` → auth-service,
+   `/v1/users/*` → user-service, `/v1/sessions/*` → session-service,
+   `/v1/public/*` → application-service).
+6. Services collaborate **synchronously** (HTTP + `X-Internal-Key`) for
    request/response operations and **asynchronously** (Kafka events) for
    notifications.
 
@@ -117,13 +121,13 @@ release.
 
 | Component | Port | Responsibility |
 |---|---|---|
-| **gateway** | `8100` | Single entry point: rate limiting, JWT validation, routing, CORS, metrics, security headers, `/health` + `/metrics` |
+| **gateway** | `8100` | Single entry point: rate limiting, API key resolution, JWT validation, routing, CORS, metrics, security headers, `/health` + `/metrics` |
 | **auth-service** | `8002` | Register, login, logout, token refresh, email verification, password reset, account deletion & email change (email-confirmed); Argon2id hashing, brute-force protection, purpose-bound HMAC tokens, event publishing |
 | **user-service** | `8001` | User profiles, avatar upload (JPEG/PNG/WebP ≤ 5 MB), one-time token storage (verification, reset, deletion, email-change); internal endpoints for auth-service |
 | **token-service** | `8003` | JWT generation, verification (incl. `iss`/`aud`) and blacklisting (Redis DB 0). Internal only |
 | **session-service** | `8004` | Session lifecycle, single-use refresh-token rotation, multi-device limit (oldest session revoked) |
 | **email-service** | `8005` | Consumes Kafka events and sends transactional emails (verification, security alert, new-login alert with IP geolocation, deletion & email-change confirmations, post-change notification) |
-| **application-service** | `8006` | Third-party application registry + API keys (`pk_live_…` / `sk_live_…`, Stripe-aligned); Redis-cached key verification (DB 3) with active cache invalidation on revoke. Internal only — gateway wiring prepared |
+| **application-service** | `8006` | Third-party application registry + API keys (`pk_live_…` / `sk_live_…`, Stripe-aligned); Redis-cached key verification (DB 3) with active cache invalidation on revoke. Proxied through gateway `/v1/public/*` |
 | **redpanda** | `9092` | Kafka-compatible message broker for async events |
 | **redis** | `6379` | Token blacklist (DB 0), service state (DB 1), rate limiting & brute-force counters (DB 2) |
 | **postgres-\*** | `5432` | One isolated PostgreSQL instance per service (auth, users, sessions, applications) |
@@ -136,7 +140,7 @@ release.
 Pure-ASGI middleware wrapping, **outside → inside**:
 
 ```
-SecurityHeaders → RateLimit → Metrics → _app (CORS → Logging → Errors → JWT → Router)
+SecurityHeaders → RateLimit → Metrics → _app (ApiKeyAuth → JWTAuth → Errors → Logging → CORS → Router)
 ```
 
 | Layer | Role |
@@ -144,12 +148,13 @@ SecurityHeaders → RateLimit → Metrics → _app (CORS → Logging → Errors 
 | `SecurityHeadersMiddleware` | Sets hardening headers on every response |
 | `RateLimitMiddleware` | Redis sliding-window per IP; tuned per route group (login `10/min`, register `5/min`, reset-password `3/min`, verify-email/resend `5/min`, refresh `20/min`, sessions `60/min`, everything else `100/min`) → `429` with `Retry-After` |
 | `MetricsMiddleware` | Request counters/durations for Prometheus |
+| `ApiKeyAuthMiddleware` | Resolves `X-Identyx-Key` via application-service `/applications/verify-key`; injects `X-Tenant-Id` + `X-Application-Id`; skips JWT for API-key-only routes |
 | `CORSMiddleware` | Origin allow-list from `CORS_ORIGINS` |
 | `LoggingMiddleware` | Structured JSON request logs |
 | `ErrorHandlingMiddleware` | Normalized JSON error responses |
-| `JWTAuthMiddleware` | Extracts `Bearer` token, calls `POST /tokens/verify`, injects `X-User-Id`, strips caller-supplied `X-User-Id` / `X-Internal-Key` |
+| `JWTAuthMiddleware` | Extracts `Bearer` token, calls `POST /tokens/verify`, injects `X-User-Id`, strips caller-supplied `X-User-Id` / `X-Internal-Key` / `X-Identyx-Key` |
 
-The `/health` endpoint probes all 5 gateway-proxied services concurrently and reports
+The `/health` endpoint probes all 6 gateway-proxied services concurrently and reports
 `ok`/`degraded`. The `/ready` endpoint additionally checks the rate-limit Redis
 connection and returns `200`/`503` for orchestrator readiness probes.
 
@@ -223,8 +228,9 @@ Each service owns **its** database and never writes to another service's store:
 | **Anti-enumeration** | auth-service | Unknown email, wrong password and lockout all return the same generic `401`; resend-verification returns a generic message |
 | **One-time tokens** | auth-service + user-service | HMAC signature bound to a `purpose` (`email_verification`, `password_reset`, `delete_account`, `email_change`) + SHA-256 stored hash + expiry (24 h) + single use; a token cannot be replayed across flows |
 | **Internal API** | all services | `X-Internal-Key` shared secret; routes hidden from the OpenAPI schema |
-| **Header stripping** | gateway | `X-User-Id` and `X-Internal-Key` are never trusted from the client |
+| **Header stripping** | gateway | `X-User-Id`, `X-Internal-Key` and `X-Identyx-Key` are never trusted from the client |
 | **Multi-device limit** | session-service | Default 5 sessions/user; the oldest session is revoked automatically |
+| **API key authentication** | gateway → application-service | `X-Identyx-Key` resolved via `/applications/verify-key`; cache-first (Redis DB 3, 60 s TTL); constant-time hash comparison; active invalidation on revoke |
 
 ### 7. Observability
 
@@ -429,7 +435,8 @@ identyx-api/
 │       └── openapi.json              # exported OpenAPI spec
 │
 ├── scripts/
-│   └── e2e_smoke_test.sh             # lightweight CLI E2E smoke test
+│   ├── seed_native_application.py # idempotent seed for identyx-native app
+│   └── e2e_smoke_test.sh          # lightweight CLI E2E smoke test
 │
 ├── infra/                            # deployment & infrastructure
 │   ├── docker-compose.yml            # full development stack
@@ -457,19 +464,21 @@ identyx-api/
 │       ├── core/
 │       │   ├── config.py             # pydantic-settings configuration
 │       │   └── logging/config.py     # structured JSON logging
-│       ├── middleware/
-│       │   ├── security_headers.py   # hardening headers
-│       │   ├── rate_limit.py         # Redis sliding-window limiting
-│       │   ├── jwt_auth.py           # Bearer validation + X-User-Id injection
-│       │   ├── cors.py               # CORS allow-list
-│       │   ├── logging.py            # request logging
-│       │   └── errors.py             # normalized errors
-│       ├── metrics/prometheus.py     # Prometheus metrics
-│       ├── observability/tracing.py  # OpenTelemetry setup (OTLP → Tempo)
-│       └── routes/
-│           ├── auth.py               # /v1/auth/*  proxy
-│           ├── users.py              # /v1/users/* proxy
-│           └── sessions.py           # /v1/sessions/* proxy
+│   ├── middleware/
+│   │   ├── security_headers.py   # hardening headers
+│   │   ├── rate_limit.py         # Redis sliding-window limiting
+│   │   ├── api_key_auth.py       # API key resolution (X-Identyx-Key)
+│   │   ├── jwt_auth.py           # Bearer validation + X-User-Id injection
+│   │   ├── cors.py               # CORS allow-list
+│   │   ├── logging.py            # request logging
+│   │   └── errors.py             # normalized errors
+│   ├── metrics/prometheus.py     # Prometheus metrics
+│   ├── observability/tracing.py  # OpenTelemetry setup (OTLP → Tempo)
+│   └── routes/
+│       ├── auth.py               # /v1/auth/*  proxy
+│       ├── users.py              # /v1/users/* proxy
+│       ├── sessions.py           # /v1/sessions/* proxy
+│       └── public.py             # /v1/public/applications/me (API key only)
 │
 ├── services/
 │   ├── auth-services/                # authentication — :8002
@@ -654,10 +663,10 @@ cp .env.production.example .env
 #        openssl rand -base64 48   # INTERNAL_API_KEY
 
 # 3. Pull the pre-built images (or add `--build` to build locally)
-IMAGE_TAG=V1.1.1 docker compose -f infra/docker-compose.prod.yml pull
+IMAGE_TAG=V1.1.2 docker compose -f infra/docker-compose.prod.yml pull
 
 # 4. Start the stack
-IMAGE_TAG=V1.1.1 docker compose -f infra/docker-compose.prod.yml up -d
+IMAGE_TAG=V1.1.2 docker compose -f infra/docker-compose.prod.yml up -d
 
 # 5. Check health
 curl https://api.identyx.io/health
@@ -742,6 +751,7 @@ or `/docs` on a dev instance.
 | `/v1/sessions/` | GET | JWT | List active sessions |
 | `/v1/sessions/revoke-all` | DELETE | JWT | Revoke all sessions |
 | `/v1/sessions/{session_id}` | DELETE | JWT | Revoke a session (owner only) |
+| `/v1/public/applications/me` | GET | API key | Application metadata for the presented key |
 | `/health` | GET | — | Service health (incl. downstream probes) |
 | `/ready` | GET | — | Readiness probe (200/503) for orchestrators |
 | `/metrics` | GET | — | Prometheus scrape endpoint |

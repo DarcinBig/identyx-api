@@ -10,6 +10,7 @@ import app.http as http_state
 from app.core.config import get_settings
 from app.core.logging.config import setup_logging
 from app.metrics.prometheus import MetricsMiddleware, metrics_response
+from app.middleware.api_key_auth import ApiKeyAuthMiddleware
 from app.middleware.cors import get_cors_config
 from app.middleware.errors import ErrorHandlingMiddleware
 from app.middleware.jwt_auth import JWTAuthMiddleware
@@ -18,6 +19,7 @@ from app.middleware.rate_limit import RateLimitMiddleware, get_rate_limit_redis
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.observability.tracing import instrument_fastapi, setup_tracing
 from app.routes.auth import router as auth_router
+from app.routes.public import router as public_router
 from app.routes.sessions import router as sessions_router
 from app.routes.users import router as users_router
 
@@ -64,6 +66,10 @@ _openapi_tags = [
         "description": "Active session management (list, revoke). Every route requires a valid JWT.",
     },
     {
+        "name": "public",
+        "description": "Public API key introspection. Authenticated via X-Identyx-Key header (no JWT).",
+    },
+    {
         "name": "observability",
         "description": "Operational endpoints (health, Prometheus metrics).",
     },
@@ -77,7 +83,7 @@ _app = FastAPI(
         "`Authorization: Bearer <access_token>` header. Access tokens are issued by "
         "`POST /v1/auth/login` (or `/v1/auth/register`) and rotated by `POST /v1/auth/refresh`."
     ),
-    version="1.1.1",
+    version="1.1.2",
     lifespan=lifespan,
     docs_url=None if _is_production else "/docs",
     redoc_url=None if _is_production else "/redoc",
@@ -97,6 +103,7 @@ _app.add_middleware(CORSMiddleware, **cors_config)
 _app.add_middleware(LoggingMiddleware)
 _app.add_middleware(ErrorHandlingMiddleware)
 _app.add_middleware(JWTAuthMiddleware)
+_app.add_middleware(ApiKeyAuthMiddleware)
 
 # --- Routers -----------------------------------------------
 # The public API is versioned under /v1.
@@ -107,6 +114,7 @@ _api_version = "/v1"
 _app.include_router(auth_router, prefix=_api_version)
 _app.include_router(users_router, prefix=_api_version)
 _app.include_router(sessions_router, prefix=_api_version)
+_app.include_router(public_router, prefix=_api_version)
 
 # OpenTelemetry auto-instrumentation (no-op when tracing is disabled)
 instrument_fastapi(_app)
@@ -135,6 +143,7 @@ async def health_check():
         "token-service": f"{settings.token_service_url}/health",
         "session-service": f"{settings.session_service_url}/health",
         "email-service": f"{settings.email_service_url}/health",
+        "application-service": f"{settings.application_service_url}/health",
     }
 
     statuses = {}
@@ -158,7 +167,7 @@ async def health_check():
     return {
         "service": "gateway",
         "status": overall,
-        "version": "1.1.1",
+        "version": "1.1.2",
         "uptime_seconds": uptime_seconds,
         "services": statuses,
     }
@@ -200,6 +209,7 @@ async def ready_check(response: Response):
         "token-service": f"{settings.token_service_url}/health",
         "session-service": f"{settings.session_service_url}/health",
         "email-service": f"{settings.email_service_url}/health",
+        "application-service": f"{settings.application_service_url}/health",
     }
 
     service_statuses = {}
@@ -227,7 +237,7 @@ async def ready_check(response: Response):
     body = {
         "service": "gateway",
         "ready": ready,
-        "version": "1.1.1",
+        "version": "1.1.2",
         "uptime_seconds": uptime_seconds,
         "dependencies": dependencies,
         "services": service_statuses,
@@ -242,7 +252,12 @@ async def metrics():
 
 # --- Pure ASGI wrapping ------------------------------------
 # Execution order for incoming requests (outside → inside):
-# SecurityHeaders → RateLimit → Metrics → _app (CORS, Logging, Errors, JWT, routes)
+# SecurityHeaders → RateLimit → Metrics →
+#   _app (ApiKeyAuth → JWTAuth → Errors → Logging → CORS → routes)
+#
+# Key invariant: ApiKeyAuthMiddleware must wrap JWTAuthMiddleware
+# (added AFTER it) so it executes first and can set
+# scope["api_key_authenticated"] for API-key-only routes.
 app = SecurityHeadersMiddleware(
     RateLimitMiddleware(
         MetricsMiddleware(_app, service_name="gateway")

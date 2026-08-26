@@ -1,6 +1,6 @@
 [project]
 name = "application-services"
-version = "1.1.1"
+version = "1.1.2"
 description = "Identyx — Application service: third-party applications registry and API key resolution"
 readme = "README.md"
 requires-python = ">=3.14"

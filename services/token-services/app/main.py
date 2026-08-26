@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Identyx Token Service",
     description="JWT generation and validation",
-    version="1.1.1",
+    version="1.1.2",
     lifespan=lifespan,
     docs_url="/docs" if settings.debug else None,
     redoc_url="/redoc" if settings.debug else None,
@@ -71,7 +71,7 @@ async def health_check():
     return {
         "service": "token-service",
         "status": overall,
-        "version": "1.1.1",
+        "version": "1.1.2",
         "uptime_seconds": uptime_seconds,
         "dependencies": {
             "redis":  redis_status,
