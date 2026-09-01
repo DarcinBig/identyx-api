@@ -83,7 +83,7 @@ _app = FastAPI(
         "`Authorization: Bearer <access_token>` header. Access tokens are issued by "
         "`POST /v1/auth/login` (or `/v1/auth/register`) and rotated by `POST /v1/auth/refresh`."
     ),
-    version="1.1.2",
+    version="1.1.3",
     lifespan=lifespan,
     docs_url=None if _is_production else "/docs",
     redoc_url=None if _is_production else "/redoc",
@@ -172,7 +172,7 @@ async def health_check():
     return {
         "service": "gateway",
         "status": overall,
-        "version": "1.1.2",
+        "version": "1.1.3",
         "uptime_seconds": uptime_seconds,
         "services": statuses,
     }
@@ -242,7 +242,7 @@ async def ready_check(response: Response):
     body = {
         "service": "gateway",
         "ready": ready,
-        "version": "1.1.2",
+        "version": "1.1.3",
         "uptime_seconds": uptime_seconds,
         "dependencies": dependencies,
         "services": service_statuses,
