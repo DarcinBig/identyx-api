@@ -51,6 +51,39 @@ class ApplicationRepository:
         )
         return list(result.scalars().all())
 
+    async def find_active_by_origins(self, origins: list[str]) -> list[Application]:
+        """Active applications whose `allowed_origins` overlap the given origins.
+
+        Used for:
+          - dynamic CORS resolution (which app(s) allow an origin), and
+          - enforcing cross-app origin uniqueness at write time.
+        Postgres uses the GIN index on the array column; SQLite (tests) filters
+        in Python because it stores the array as JSON.
+        """
+        origins = [o for o in origins if o]
+        if not origins:
+            return []
+
+        dialect = self.db.bind.dialect.name if self.db.bind is not None else ""
+        if dialect == "postgresql":
+            from sqlalchemy import or_
+
+            conditions = [Application.allowed_origins.any(origin) for origin in origins]
+            result = await self.db.execute(
+                select(Application)
+                .where(Application.status == "active", or_(*conditions))
+            )
+        else:
+            result = await self.db.execute(
+                select(Application).where(Application.status == "active")
+            )
+            return [
+                app
+                for app in result.scalars().all()
+                if any(o in (app.allowed_origins or []) for o in origins)
+            ]
+        return list(result.scalars().all())
+
     async def update(self, application_id: str, data: ApplicationUpdate) -> Application | None:
         fields = data.model_dump(exclude_none=True)
         if not fields:

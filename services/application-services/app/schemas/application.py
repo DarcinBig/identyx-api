@@ -120,6 +120,18 @@ class VerifyKeyResult(BaseModel):
     status: str
 
 
+class ResolveByOriginResult(BaseModel):
+    """Result of an origin lookup for dynamic CORS (Sub-step D).
+
+    `allowed` is True when the origin is registered by at least one active
+    application. The gateway uses this at CORS preflight (no API key is
+    presented for OPTIONS), then validates the key on the actual request.
+    """
+
+    allowed: bool
+    applications: list[str]
+
+
 # ─── Public introspection (via gateway) ───────────────────────────────
 
 
