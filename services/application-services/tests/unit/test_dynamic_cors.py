@@ -1,4 +1,4 @@
-"""Tests for Sub-step D — dynamic CORS on application-service.
+"""Tests for dynamic CORS on application-service.
 
 Covers:
   - resolve_by_origin matches active apps by allowed_origins

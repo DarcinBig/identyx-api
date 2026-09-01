@@ -85,7 +85,7 @@ class ApplicationService:
     async def _ensure_origins_available(
         self, origins: list[str], exclude_app_id: str | None
     ) -> None:
-        """Cross-app origin uniqueness (Sub-step D).
+        """Cross-app origin uniqueness.
 
         Each origin may be claimed by at most one application. If any requested
         origin is already registered by another application, raise 409 so the

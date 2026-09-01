@@ -5,7 +5,7 @@ Revision ID: 0002
 Revises: 0001
 Create Date: 2026-09-01 00:00:00.000000
 
-Sub-step D — dynamic (resolve-by-origin) CORS:
+Dynamic (resolve-by-origin) CORS:
 effective per-origin lookups across all active applications require a
 bloom-friendly index on the array column. Postgres GIN indexes the array
 elements so `WHERE allowed_origins @> ARRAY[:origin]` can use it.

@@ -492,17 +492,17 @@ Any `429` response includes `retry_after` (seconds). The brute-force protection
 
 ## 11. Changelog V1.1.3
 
-- **Dynamic per-application CORS (Sub-step D):** `DynamicCORSMiddleware`
+- **Dynamic per-application CORS:** `DynamicCORSMiddleware`
   replaces the static `CORSMiddleware`. OPTIONS preflights are resolved against
   application-service `GET /applications/resolve-by-origin` (backed by a GIN
   index on `allowed_origins`); actual responses use the resolved app origins
   with a static `CORS_ORIGINS` fallback. Unknown origins are rejected at
   preflight (`400`).
-- **Rate limiting by API key (Sub-step D):** `RateLimitByKeyMiddleware`
+- **Rate limiting by API key:** `RateLimitByKeyMiddleware`
   enforces a per-application budget (`RATE_LIMIT_PER_KEY_RPM`, default
   `600/min`) in parallel with the per-IP limit, keyed
   `ratekey:{application_id}:{path}` → `429` + `Retry-After`.
-- **Origin uniqueness (Sub-step D):** each origin in `allowed_origins` is
+- **Origin uniqueness:** each origin in `allowed_origins` is
   claimable by at most one application — a conflicting create/update returns
   `409`.
 - **resolve-by-origin internal endpoint:** `GET /applications/resolve-by-origin`
@@ -512,7 +512,7 @@ Any `429` response includes `retry_after` (seconds). The brute-force protection
 
 ### Previous release (V1.1.2)
 
-- **API key authentication (Sub-step C):** `ApiKeyAuthMiddleware` resolves
+- **API key authentication:** `ApiKeyAuthMiddleware` resolves
   `X-Identyx-Key` via application-service `/applications/verify-key`; injects
   `X-Tenant-Id` + `X-Application-Id`; skips JWT for API-key-only routes.
 - **Public application introspection:** `GET /v1/public/applications/me`

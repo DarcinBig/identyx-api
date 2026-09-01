@@ -1,5 +1,5 @@
 """
-Per-application (API key) rate limiting — Sub-step D.
+Per-application (API key) rate limiting for the gateway.
 
 Complements the existing per-IP limiter (`app.middleware.rate_limit`). Once
 ApiKeyAuthMiddleware has resolved the presented API key, this middleware

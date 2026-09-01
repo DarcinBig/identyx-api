@@ -136,7 +136,7 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
         headers.append((b"x-application-id", application_id.encode()))
         scope["headers"] = headers
 
-        # Per-app allowed origins for dynamic CORS (Sub-step D). The key is
+        # Per-app allowed origins for dynamic CORS. The key is
         # already validated; store what the app is allowed to use so
         # DynamicCORSMiddleware can inject Access-Control-Allow-Origin.
         scope["application_allowed_origins"] = list(

@@ -25,10 +25,10 @@ the OpenAPI schema (`include_in_schema=False`).
   metadata for the key presented in `X-Identyx-Key`.
 - **Resolve-by-origin** — `GET /applications/resolve-by-origin?origin=...`
   returns which active application(s) allow a given origin. Consulted by the
-  gateway at CORS preflight (Sub-step D); backed by a Postgres GIN index on
+  gateway at CORS preflight; backed by a Postgres GIN index on
   `allowed_origins`.
 - **Origin uniqueness** — each origin in `allowed_origins` is claimable by at
-  most one application; a conflicting create/update returns `409` (Sub-step D).
+  most one application; a conflicting create/update returns `409`.
 
 All routes are protected by `X-Internal-Key` (`require_internal_key`) and
 hidden from the OpenAPI schema (`include_in_schema=False`).

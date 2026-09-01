@@ -1,5 +1,5 @@
 """
-Dynamic CORS middleware for the gateway (Sub-step D).
+Dynamic CORS middleware for the gateway.
 
 Replaces Starlette's static CORSMiddleware. Allowed origins are resolved per
 request instead of from a fixed allow-list:

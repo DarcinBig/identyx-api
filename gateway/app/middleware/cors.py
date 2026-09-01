@@ -1,7 +1,7 @@
 """
 Static CORS configuration for the gateway.
 
-Since Sub-step D, the gateway resolves origins dynamically via
+The gateway resolves origins dynamically via
 `DynamicCORSMiddleware` (preflight → application-service resolve-by-origin,
 actual request → per-app allowed origins). The static `CORS_ORIGINS` list
 remains as the environment-wide fallback and is always allowed.
