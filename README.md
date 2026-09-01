@@ -9,7 +9,7 @@
                          |___/      
 ```
 
-> Authentication & Identity API — **V1.1.2**
+> Authentication & Identity API — **V1.1.3**
 
 [![CI](https://github.com/DarcinBig/identyx-api/actions/workflows/ci.yml/badge.svg)](https://github.com/DarcinBig/identyx-api/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -45,6 +45,8 @@ scalability and seamless integration across web and mobile applications.
 | **OpenTelemetry distributed traces (Tempo)** | ✅ Done |
 | **Third-party application registry & API keys** | ✅ Done |
 | **API key authentication (X-Identyx-Key)** | ✅ Done |
+| **Dynamic per-application CORS (resolve-by-origin)** | ✅ Done |
+| **Rate limiting by API key (per application)** | ✅ Done |
 | **CI: lint, unit tests, E2E suite** | ✅ Done |
 | **OAuth 2.0 providers (Google, GitHub, …)** | 🔜 Planned |
 | **Passkeys (WebAuthn)** | 🔜 Planned |
@@ -71,11 +73,12 @@ its public proxy route (`/v1/public/applications/me`) is live.
                                            ▼
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
 │                                  GATEWAY  ·  :8100                                  │
-│ SecurityHeaders → RateLimit → Metrics → ApiKeyAuth → JWTAuth → Logging → Errors → CORS          │
-│ · Redis sliding-window rate limiting                                                │
-│    (login 10/min · register 5/min · refresh 20/min · global 100/min)                │
-│ · API key resolution via application-service (X-Identyx-Key header)                  │
-│ · JWT validation via token-service + X-User-Id injection                            │
+│ SecurityHeaders → RateLimit → Metrics → CORS → ApiKeyAuth → RateLimitByKey → JWTAuth → Logging → Errors → Router  │
+│ · Redis sliding-window rate limiting (per IP and per API key)                                           │
+│    (login 10/min · register 5/min · refresh 20/min · global 100/min · per-key 600/min)                  │
+│ · Dynamic per-application CORS (preflight → resolve-by-origin)                                          │
+│ · API key resolution via application-service (X-Identyx-Key header)                                      │
+│ · JWT validation via token-service + X-User-Id injection                                                │
 └────┬────────────────┬────────────────┬────────────────┬────────────────┬────────────┘
      │                │                │                │                │
      ▼                ▼                ▼                ▼                ▼
@@ -129,7 +132,7 @@ its public proxy route (`/v1/public/applications/me`) is live.
 | **email-service** | `8005` | Consumes Kafka events and sends transactional emails (verification, security alert, new-login alert with IP geolocation, deletion & email-change confirmations, post-change notification) |
 | **application-service** | `8006` | Third-party application registry + API keys (`pk_live_…` / `sk_live_…`, Stripe-aligned); Redis-cached key verification (DB 3) with active cache invalidation on revoke. Proxied through gateway `/v1/public/*` |
 | **redpanda** | `9092` | Kafka-compatible message broker for async events |
-| **redis** | `6379` | Token blacklist (DB 0), service state (DB 1), rate limiting & brute-force counters (DB 2) |
+| **redis** | `6379` | Token blacklist (DB 0), service state (DB 1), rate limiting & brute-force counters (DB 2), API-key resolution cache (DB 3) |
 | **postgres-\*** | `5432` | One isolated PostgreSQL instance per service (auth, users, sessions, applications) |
 | **prometheus** | `9090` | Metrics collection and scraping |
 | **grafana** | `3000` | Auto-provisioned dashboards (Prometheus datasource) |
@@ -140,7 +143,7 @@ its public proxy route (`/v1/public/applications/me`) is live.
 Pure-ASGI middleware wrapping, **outside → inside**:
 
 ```
-SecurityHeaders → RateLimit → Metrics → _app (ApiKeyAuth → JWTAuth → Errors → Logging → CORS → Router)
+SecurityHeaders → RateLimit → Metrics → _app (CORS → ApiKeyAuth → RateLimitByKey → JWTAuth → Errors → Logging → Router)
 ```
 
 | Layer | Role |
@@ -148,11 +151,12 @@ SecurityHeaders → RateLimit → Metrics → _app (ApiKeyAuth → JWTAuth → E
 | `SecurityHeadersMiddleware` | Sets hardening headers on every response |
 | `RateLimitMiddleware` | Redis sliding-window per IP; tuned per route group (login `10/min`, register `5/min`, reset-password `3/min`, verify-email/resend `5/min`, refresh `20/min`, sessions `60/min`, everything else `100/min`) → `429` with `Retry-After` |
 | `MetricsMiddleware` | Request counters/durations for Prometheus |
-| `ApiKeyAuthMiddleware` | Resolves `X-Identyx-Key` via application-service `/applications/verify-key`; injects `X-Tenant-Id` + `X-Application-Id`; skips JWT for API-key-only routes |
-| `CORSMiddleware` | Origin allow-list from `CORS_ORIGINS` |
+| `DynamicCORSMiddleware` | Per-application CORS: OPTIONS preflights resolved against application-service `GET /applications/resolve-by-origin` (GIN-indexed); actual responses use the resolved app `allowed_origins`, with a static `CORS_ORIGINS` fallback. Always allows `CORS_ORIGINS` |
+| `ApiKeyAuthMiddleware` | Resolves `X-Identyx-Key` via application-service `/applications/verify-key`; injects `X-Tenant-Id` + `X-Application-Id` + `allowed_origins` into scope; skips JWT for API-key-only routes |
+| `RateLimitByKeyMiddleware` | Redis sliding-window per application (`ratekey:{application_id}:{path}`), `RATE_LIMIT_PER_KEY_RPM` (default `600/min`), in parallel with the per-IP limit → `429` + `Retry-After` |
+| `JWTAuthMiddleware` | Extracts `Bearer` token, calls `POST /tokens/verify`, injects `X-User-Id`, strips caller-supplied `X-User-Id` / `X-Internal-Key` / `X-Identyx-Key` |
 | `LoggingMiddleware` | Structured JSON request logs |
 | `ErrorHandlingMiddleware` | Normalized JSON error responses |
-| `JWTAuthMiddleware` | Extracts `Bearer` token, calls `POST /tokens/verify`, injects `X-User-Id`, strips caller-supplied `X-User-Id` / `X-Internal-Key` / `X-Identyx-Key` |
 
 The `/health` endpoint probes all 6 gateway-proxied services concurrently and reports
 `ok`/`degraded`. The `/ready` endpoint additionally checks the rate-limit Redis
@@ -663,10 +667,10 @@ cp .env.production.example .env
 #        openssl rand -base64 48   # INTERNAL_API_KEY
 
 # 3. Pull the pre-built images (or add `--build` to build locally)
-IMAGE_TAG=V1.1.2 docker compose -f infra/docker-compose.prod.yml pull
+IMAGE_TAG=V1.1.3 docker compose -f infra/docker-compose.prod.yml pull
 
 # 4. Start the stack
-IMAGE_TAG=V1.1.2 docker compose -f infra/docker-compose.prod.yml up -d
+IMAGE_TAG=V1.1.3 docker compose -f infra/docker-compose.prod.yml up -d
 
 # 5. Check health
 curl https://api.identyx.io/health

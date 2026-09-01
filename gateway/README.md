@@ -105,10 +105,12 @@ app/
 │   ├── sessions.py  # /v1/sessions/* proxy
 │   └── public.py    # /v1/public/applications/me (API key only)
 ├── middleware/
-│   ├── api_key_auth.py  # API key resolution (X-Identyx-Key → X-Tenant-Id)
-│   ├── jwt_auth.py      # JWT validation + X-User-Id injection
-│   ├── rate_limit.py    # Redis sliding-window rate limiting
-│   ├── cors.py          # CORS allow-list
+│   ├── api_key_auth.py      # API key resolution (X-Identyx-Key → X-Tenant-Id)
+│   ├── jwt_auth.py          # JWT validation + X-User-Id injection
+│   ├── rate_limit.py        # Redis sliding-window rate limiting (per IP)
+│   ├── rate_limit_by_key.py # Redis sliding-window rate limiting (per API key)
+│   ├── dynamic_cors.py      # per-app CORS (preflight → resolve-by-origin)
+│   ├── cors.py              # static CORS config (fallback origins)
 │   ├── security_headers.py
 │   ├── logging.py
 │   └── errors.py
