@@ -1,17 +1,20 @@
 """
-CORS configuration for the gateway.
+Static CORS configuration for the gateway.
 
-In development: all localhost origins are allowed.
-In production: restrict to the frontend domains.
+The gateway resolves origins dynamically via
+`DynamicCORSMiddleware` (preflight → application-service resolve-by-origin,
+actual request → per-app allowed origins). The static `CORS_ORIGINS` list
+remains as the environment-wide fallback and is always allowed.
 
-Note: we use Starlette's CORSMiddleware directly in main.py — this file contains only the configuration.
+This module documents that config — the + sub-set of headers the dynamic
+middleware emits. It is not wired into middleware anymore.
 """
 from app.core.config import get_settings
 
 settings = get_settings()
 
 def get_cors_config() -> dict:
-    """Returns the CORS configuration according to the environment"""
+    """Returns the static CORS configuration (used as a reference/fallback)"""
     origins = settings.get_cors_origins_list()
 
     return {

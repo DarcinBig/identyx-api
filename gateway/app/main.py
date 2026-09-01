@@ -4,18 +4,18 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Response
-from fastapi.middleware.cors import CORSMiddleware
 
 import app.http as http_state
 from app.core.config import get_settings
 from app.core.logging.config import setup_logging
 from app.metrics.prometheus import MetricsMiddleware, metrics_response
 from app.middleware.api_key_auth import ApiKeyAuthMiddleware
-from app.middleware.cors import get_cors_config
+from app.middleware.dynamic_cors import DynamicCORSMiddleware
 from app.middleware.errors import ErrorHandlingMiddleware
 from app.middleware.jwt_auth import JWTAuthMiddleware
 from app.middleware.logging import LoggingMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware, get_rate_limit_redis
+from app.middleware.rate_limit_by_key import RateLimitByKeyMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.observability.tracing import instrument_fastapi, setup_tracing
 from app.routes.auth import router as auth_router
@@ -83,7 +83,7 @@ _app = FastAPI(
         "`Authorization: Bearer <access_token>` header. Access tokens are issued by "
         "`POST /v1/auth/login` (or `/v1/auth/register`) and rotated by `POST /v1/auth/refresh`."
     ),
-    version="1.1.2",
+    version="1.1.3",
     lifespan=lifespan,
     docs_url=None if _is_production else "/docs",
     redoc_url=None if _is_production else "/redoc",
@@ -93,17 +93,22 @@ _app = FastAPI(
     redirect_slashes=False,
 )
 
-# --- CORS --------------------------------------------------
-
-cors_config = get_cors_config()
-_app.add_middleware(CORSMiddleware, **cors_config)
-
 # --- Middlewares -------------------------------------------
+# Starlette's add_middleware prepends, so the LAST middleware added below runs
+# FIRST. Execution order inside _app:
+#   DynamicCORS → ApiKeyAuth → RateLimitByKey → JWTAuth → Errors → Logging
+#
+# DynamicCORS is added last (runs first) so OPTIONS preflights are answered
+# before any auth middleware runs. ApiKeyAuth must run before
+# RateLimitByKey (needs the resolved application_id) and before JWTAuth
+# (sets scope["api_key_authenticated"] for API-key-only routes).
 
 _app.add_middleware(LoggingMiddleware)
 _app.add_middleware(ErrorHandlingMiddleware)
 _app.add_middleware(JWTAuthMiddleware)
+_app.add_middleware(RateLimitByKeyMiddleware)
 _app.add_middleware(ApiKeyAuthMiddleware)
+_app.add_middleware(DynamicCORSMiddleware)
 
 # --- Routers -----------------------------------------------
 # The public API is versioned under /v1.
@@ -167,7 +172,7 @@ async def health_check():
     return {
         "service": "gateway",
         "status": overall,
-        "version": "1.1.2",
+        "version": "1.1.3",
         "uptime_seconds": uptime_seconds,
         "services": statuses,
     }
@@ -237,7 +242,7 @@ async def ready_check(response: Response):
     body = {
         "service": "gateway",
         "ready": ready,
-        "version": "1.1.2",
+        "version": "1.1.3",
         "uptime_seconds": uptime_seconds,
         "dependencies": dependencies,
         "services": service_statuses,
@@ -253,11 +258,15 @@ async def metrics():
 # --- Pure ASGI wrapping ------------------------------------
 # Execution order for incoming requests (outside → inside):
 # SecurityHeaders → RateLimit → Metrics →
-#   _app (ApiKeyAuth → JWTAuth → Errors → Logging → CORS → routes)
+#   _app (DynamicCORS → ApiKeyAuth → RateLimitByKey → JWTAuth → Errors →
+#         Logging → routes)
 #
-# Key invariant: ApiKeyAuthMiddleware must wrap JWTAuthMiddleware
-# (added AFTER it) so it executes first and can set
-# scope["api_key_authenticated"] for API-key-only routes.
+# Key invariants:
+#   - DynamicCORS is outermost inside _app so OPTIONS preflights are answered
+#     before any auth middleware runs.
+#   - ApiKeyAuthMiddleware wraps RateLimitByKey + JWTAuth so it executes first
+#     and can set scope["api_key_authenticated"] as well as resolve the
+#     application_id / allowed_origins that the inner middlewares consume.
 app = SecurityHeadersMiddleware(
     RateLimitMiddleware(
         MetricsMiddleware(_app, service_name="gateway")

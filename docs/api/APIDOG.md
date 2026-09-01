@@ -1,4 +1,4 @@
-# Identyx V1.1.2 — API Documentation for Apidog
+# Identyx V1.1.3 — API Documentation for Apidog
 
 ## Table of contents
 
@@ -12,7 +12,7 @@
 8. [Error handling](#8-error-handling)
 9. [Rate limiting](#9-rate-limiting)
 10. [Known limitations of the generated spec](#10-known-limitations-of-the-generated-spec)
-11. [Changelog V1.1.2](#11-changelog-v112)
+11. [Changelog V1.1.3](#11-changelog-v113)
 12. [Maintenance](#12-maintenance)
 
 ---
@@ -416,7 +416,7 @@ Liveness probe (public).
 {
   "service": "gateway",
   "status": "ok",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "uptime_seconds": 1810,
   "services": {
     "auth-service": "ok",
@@ -454,7 +454,10 @@ Liveness probe (public).
 
 ## 9. Rate limiting
 
-Applied by the gateway per **IP** (sliding 60 s window, Redis).
+Applied by the gateway **per IP** (sliding 60 s window, Redis) and, for requests
+authenticated by an API key, **per application** in parallel.
+
+Per-IP limits:
 
 | Endpoint | Limit (default) | Variable |
 |----------|-----------------|----------|
@@ -464,7 +467,13 @@ Applied by the gateway per **IP** (sliding 60 s window, Redis).
 | `/v1/auth/reset-password` | 3 req/min | `RATE_LIMIT_RESET_PASSWORD` |
 | `/v1/auth/verify-email` + `/resend-verification` | 5 req/min | `RATE_LIMIT_VERIFY_EMAIL` |
 
-The `429` response includes `retry_after` (seconds). The brute-force protection
+Per-application (API key) limit — applied to every API-key-authenticated path:
+
+| Scope | Limit (default) | Variable |
+|-------|-----------------|----------|
+| Each application (all its paths) | 600 req/min | `RATE_LIMIT_PER_KEY_RPM` |
+
+Any `429` response includes `retry_after` (seconds). The brute-force protection
 (auth-service) locks the IP after 5 failures for 15 minutes (`BRUTE_FORCE_MAX_ATTEMPTS`
 / `BRUTE_FORCE_LOCKOUT_MINUTES`).
 
@@ -481,9 +490,29 @@ The `429` response includes `retry_after` (seconds). The brute-force protection
 
 ---
 
-## 11. Changelog V1.1.2
+## 11. Changelog V1.1.3
 
-- **API key authentication (Sub-step C):** `ApiKeyAuthMiddleware` resolves
+- **Dynamic per-application CORS:** `DynamicCORSMiddleware`
+  replaces the static `CORSMiddleware`. OPTIONS preflights are resolved against
+  application-service `GET /applications/resolve-by-origin` (backed by a GIN
+  index on `allowed_origins`); actual responses use the resolved app origins
+  with a static `CORS_ORIGINS` fallback. Unknown origins are rejected at
+  preflight (`400`).
+- **Rate limiting by API key:** `RateLimitByKeyMiddleware`
+  enforces a per-application budget (`RATE_LIMIT_PER_KEY_RPM`, default
+  `600/min`) in parallel with the per-IP limit, keyed
+  `ratekey:{application_id}:{path}` → `429` + `Retry-After`.
+- **Origin uniqueness:** each origin in `allowed_origins` is
+  claimable by at most one application — a conflicting create/update returns
+  `409`.
+- **resolve-by-origin internal endpoint:** `GET /applications/resolve-by-origin`
+  on application-service (internal, `X-Internal-Key` required).
+- **GIN index migration:** `0002_gin_index_allowed_origins` adds a Postgres GIN
+  index on `applications.allowed_origins` for origin lookups.
+
+### Previous release (V1.1.2)
+
+- **API key authentication:** `ApiKeyAuthMiddleware` resolves
   `X-Identyx-Key` via application-service `/applications/verify-key`; injects
   `X-Tenant-Id` + `X-Application-Id`; skips JWT for API-key-only routes.
 - **Public application introspection:** `GET /v1/public/applications/me`

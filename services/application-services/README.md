@@ -23,6 +23,12 @@ the OpenAPI schema (`include_in_schema=False`).
   (no 60s TTL wait).
 - **Introspect** — `GET /applications/me` returns non-sensitive application
   metadata for the key presented in `X-Identyx-Key`.
+- **Resolve-by-origin** — `GET /applications/resolve-by-origin?origin=...`
+  returns which active application(s) allow a given origin. Consulted by the
+  gateway at CORS preflight; backed by a Postgres GIN index on
+  `allowed_origins`.
+- **Origin uniqueness** — each origin in `allowed_origins` is claimable by at
+  most one application; a conflicting create/update returns `409`.
 
 All routes are protected by `X-Internal-Key` (`require_internal_key`) and
 hidden from the OpenAPI schema (`include_in_schema=False`).
@@ -51,6 +57,7 @@ Internal only (never exposed directly):
 |---|---|---|
 | POST | `/applications` | Create an application + first key pair (admin / break-glass) |
 | POST | `/applications/verify-key` | Resolve a key into a tenant (gateway hot path) |
+| GET | `/applications/resolve-by-origin` | Which active app(s) allow an origin (dynamic CORS preflight) |
 | GET | `/applications/me` | Non-sensitive app metadata for the presented key |
 | POST | `/applications/{id}/keys` | Rotate keys (new pair, old ones stay active) |
 | DELETE | `/applications/{id}/keys/{key_id}` | Revoke a key (immediate cache invalidation) |

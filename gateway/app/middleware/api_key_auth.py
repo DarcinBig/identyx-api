@@ -136,6 +136,13 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
         headers.append((b"x-application-id", application_id.encode()))
         scope["headers"] = headers
 
+        # Per-app allowed origins for dynamic CORS. The key is
+        # already validated; store what the app is allowed to use so
+        # DynamicCORSMiddleware can inject Access-Control-Allow-Origin.
+        scope["application_allowed_origins"] = list(
+            verify_data.get("allowed_origins") or []
+        )
+
         # Mark as API-key-authenticated so JWT middleware can skip
         # validation for API-key-only routes.
         scope["api_key_authenticated"] = True

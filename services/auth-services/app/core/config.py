@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     # The user/session/token services check it on their /internal endpoints.
     internal_api_key: str = ""
 
-    # Native tenant ID (multi-tenancy Sub-step B)
+    # Native tenant ID (multi-tenancy)
     identyx_native_tenant_id: str = "00000000-0000-0000-0000-000000000001"
 
     model_config = {

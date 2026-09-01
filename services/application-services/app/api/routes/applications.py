@@ -21,6 +21,7 @@ from app.schemas.application import (
     ApplicationResponse,
     ApplicationUpdate,
     PublicApplicationInfo,
+    ResolveByOriginResult,
     RevokeKeyResponse,
     VerifyKeyRequest,
     VerifyKeyResult,
@@ -85,6 +86,27 @@ async def verify_key(
             detail="Invalid API key.",
         )
     return result
+
+
+@router.get(
+    "/resolve-by-origin",
+    response_model=ResolveByOriginResult,
+    status_code=status.HTTP_200_OK,
+    summary="Resolve which active app(s) allow an origin (internal)",
+    operation_id="resolve_by_origin",
+    include_in_schema=False,
+)
+async def resolve_by_origin(
+    origin: str,
+    service: ApplicationService = Depends(get_application_service),
+    _: None = Depends(require_internal_key),
+):
+    """
+    Returns whether the given origin is allowed by at least one active
+    application. Consulted by the gateway at CORS preflight (OPTIONS), where
+    the browser does not send the API key.
+    """
+    return await service.resolve_by_origin(origin)
 
 
 # ─── Public introspection (proxied by the gateway) ─────────────────

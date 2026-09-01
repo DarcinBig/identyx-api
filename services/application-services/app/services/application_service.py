@@ -32,6 +32,7 @@ from app.schemas.application import (
     ApplicationKeyCreatedResponse,
     ApplicationUpdate,
     PublicApplicationInfo,
+    ResolveByOriginResult,
     VerifyKeyResult,
 )
 from app.security.key_generation import (
@@ -63,6 +64,7 @@ class ApplicationService:
     # ─── Creation ────────────────────────────────────────────────────
 
     async def create_application(self, data: ApplicationCreate) -> ApplicationCreatedResponse:
+        await self._ensure_origins_available(list(data.allowed_origins), exclude_app_id=None)
         application = await self.application_repo.create(data)
         await self._issue_key_pair(application.id)
         await self.db.commit()
@@ -79,6 +81,31 @@ class ApplicationService:
             publishable_key=pair.publishable,
             secret_key=pair.secret,
         )
+
+    async def _ensure_origins_available(
+        self, origins: list[str], exclude_app_id: str | None
+    ) -> None:
+        """Cross-app origin uniqueness.
+
+        Each origin may be claimed by at most one application. If any requested
+        origin is already registered by another application, raise 409 so the
+        caller can't silently override another app's CORS policy.
+        """
+        origins = [o for o in origins if o]
+        if not origins:
+            return
+
+        conflicts = await self.application_repo.find_active_by_origins(origins)
+        for app in conflicts:
+            if app.id != exclude_app_id:
+                claimed = [o for o in origins if o in (app.allowed_origins or [])]
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"Origin(s) already claimed by another application: "
+                        f"{', '.join(claimed)}."
+                    ),
+                )
 
     async def _issue_key_pair(self, application_id: str) -> None:
         pair = generate_key_pair()
@@ -243,6 +270,26 @@ class ApplicationService:
             key_type=result.key_type,
         )
 
+    # ─── Dynamic CORS resolution (resolve-by-origin) ─────────────────
+
+    async def resolve_by_origin(self, origin: str) -> ResolveByOriginResult:
+        """Resolve whether any active application allows the given origin.
+
+        Used by the gateway during CORS preflight, where no API key is
+        presented (browsers don't send X-Identyx-Key on OPTIONS). The origin
+        is matched against each active application's `allowed_origins` via the
+        GIN index; the key is only validated on the actual request.
+        """
+        origin = (origin or "").strip().rstrip("/")
+        if not origin:
+            return ResolveByOriginResult(allowed=False, applications=[])
+
+        matching = await self.application_repo.find_active_by_origins([origin])
+        return ResolveByOriginResult(
+            allowed=bool(matching),
+            applications=[app.id for app in matching],
+        )
+
     # ─── Read / update helpers (admin) ───────────────────────────────
 
     async def get_application(self, application_id: str) -> Application | None:
@@ -251,6 +298,13 @@ class ApplicationService:
     async def update_application(
         self, application_id: str, data: ApplicationUpdate
     ) -> Application | None:
+        application = await self.application_repo.get_by_id(application_id)
+        if application is None:
+            return None
+        if data.allowed_origins is not None:
+            await self._ensure_origins_available(
+                list(data.allowed_origins), exclude_app_id=application_id
+            )
         application = await self.application_repo.update(application_id, data)
         if application is None:
             return None
