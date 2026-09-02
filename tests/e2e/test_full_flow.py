@@ -19,7 +19,11 @@ Note on rate limiting: /v1/auth/register is limited to 5 req/min per IP.
 Re-running the suite within the same minute may return 429 —
 wait a minute or raise RATE_LIMIT_REGISTER in the root .env.
 """
+import hashlib
+import hmac
 import os
+import subprocess
+import time
 import uuid
 
 import httpx
@@ -27,6 +31,18 @@ import pytest
 
 GATEWAY_URL = os.environ.get("IDENTYX_GATEWAY_URL", "http://localhost:8100")
 API_BASE = f"{GATEWAY_URL}/v1"
+
+# Purpose strings bound into the HMAC one-time-token signature.
+PURPOSE_VERIFY = "email_verification"
+PURPOSE_RESET = "password_reset"
+PURPOSE_DELETE = "delete_account"
+PURPOSE_CHANGE = "email_change"
+
+# Docker access used only to mint/stage one-time tokens exactly as the
+# auth-service + user-service do (there is no reachable inbox in CI).
+AUTH_CONTAINER = os.environ.get("IDENTYX_AUTH_CONTAINER", "identyx-auth")
+USERS_DB_CONTAINER = os.environ.get("IDENTYX_USERS_DB_CONTAINER", "identyx-db-users")
+USERS_DB_NAME = os.environ.get("IDENTYX_USERS_DB_NAME", "identyx_users")
 
 
 def _gateway_alive() -> bool:
@@ -67,6 +83,78 @@ def _register(email: str, username: str | None = None) -> dict:
 
 def _auth_headers(access_token: str) -> dict:
     return {"Authorization": f"Bearer {access_token}"}
+
+
+def _docker_available() -> bool:
+    try:
+        return subprocess.run(["docker", "version"], capture_output=True).returncode == 0
+    except Exception:
+        return False
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _reset_rate_limits():
+    """
+    Best-effort reset of the per-IP rate-limit / brute-force counters (Redis
+    DB 2) before the suite, so re-running it within the same minute does not
+    trip spurious 429s on login/register. Requires the local Docker stack;
+    silently skipped when it is unavailable (e.g. a remote gateway).
+    """
+    if not _docker_available():
+        return
+    subprocess.run(
+        ["docker", "exec", "identyx-redis", "sh", "-c", 'redis-cli -a "$REDIS_PASSWORD" -n 2 FLUSHDB'],
+        capture_output=True,
+    )
+
+
+_JWT_SECRET = None
+
+
+def _jwt_secret() -> str:
+    """JWT_SECRET_KEY from the running auth container (dev stack only)."""
+    global _JWT_SECRET
+    if _JWT_SECRET is None:
+        _JWT_SECRET = subprocess.check_output(
+            ["docker", "exec", AUTH_CONTAINER, "sh", "-c", "echo \"$JWT_SECRET_KEY\""],
+            text=True,
+        ).strip()
+    return _JWT_SECRET
+
+
+def _mint_token(user_id: str, purpose: str) -> str:
+    """Same one-time token the auth-service generates: {uid}.{purpose}.{ts}.{hmac}."""
+    ts = int(time.time())
+    message = f"{user_id}.{purpose}.{ts}"
+    sig = hmac.new(_jwt_secret().encode(), message.encode(), hashlib.sha256).hexdigest()
+    return f"{message}.{sig}"
+
+
+def _store_token_hash(table: str, user_id: str, raw_token: str, pending_email: str | None = None) -> None:
+    """Insert the SHA-256 token hash into the user-service DB."""
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    if table == "email_changes":
+        sql = (
+            f"INSERT INTO {table} (id, user_id, pending_email, token_hash, expires_at) "
+            f"VALUES ('{uuid.uuid4()}', '{user_id}', '{pending_email}', '{token_hash}', "
+            f"now() + interval '24 hours')"
+        )
+    else:
+        sql = (
+            f"INSERT INTO {table} (id, user_id, token_hash, expires_at) "
+            f"VALUES ('{uuid.uuid4()}', '{user_id}', '{token_hash}', now() + interval '24 hours')"
+        )
+    subprocess.run(
+        ["docker", "exec", USERS_DB_CONTAINER, "psql", "-U", "identyx", "-d", USERS_DB_NAME, "-c", sql],
+        check=True, capture_output=True, text=True,
+    )
+
+
+# Email-confirmed flows need Docker to stage their one-time tokens.
+pytestmark_docker = pytest.mark.skipif(
+    not _docker_available(),
+    reason="Docker unavailable — cannot stage one-time tokens for email-confirmed flows",
+)
 
 
 class TestHealth:
@@ -249,3 +337,121 @@ class TestAuthorization:
         me = client.get("/users/me", headers=_auth_headers(user_a["access_token"]))
         assert me.status_code == 200
         assert me.json()["id"] == a_id
+
+
+class TestOneTimeTokenFlows:
+    """
+    Email-confirmed flows through the public gateway.
+
+    These use the same purpose-bound HMAC one-time tokens the auth-service
+    generates, staged into the user-service DB exactly as its internal store
+    endpoints do (a reachable inbox is not available in CI). Each test mints a
+    *fresh* token AFTER the triggering public call so a same-second collision
+    with a request-generated token (1 s token granularity) cannot occur.
+    """
+
+    pytestmark = pytestmark_docker
+
+    @staticmethod
+    def _stage(purpose: str, table: str, user_id: str, pending_email: str | None = None) -> str:
+        """Mint a *fresh* token a full second after the triggering call, then stage it.
+
+        Tokens carry a 1-second-granularity timestamp, so minting in the same
+        second as a request-generated token would collide on the unique token_hash
+        constraint. Sleeping first guarantees a distinct timestamp.
+        """
+        time.sleep(1.1)
+        token = _mint_token(user_id, purpose)
+        _store_token_hash(table, user_id, token, pending_email=pending_email)
+        return token
+
+    def test_verify_email_and_replay_rejected(self):
+        email = _unique_email()
+        registered = _register(email)
+        user_id = registered["user"]["id"]
+
+        token = self._stage(PURPOSE_VERIFY, "email_verifications", user_id)
+
+        ok = client.get("/auth/verify-email", params={"token": token})
+        assert ok.status_code == 200, ok.text
+        assert ok.json()["is_verified"] is True
+
+        replay = client.get("/auth/verify-email", params={"token": token})
+        assert replay.status_code == 400
+
+    def test_password_reset_success_rotation(self):
+        """REGRESSION: reset tokens must verify with their own purpose."""
+        email = _unique_email()
+        registered = _register(email)
+        user_id = registered["user"]["id"]
+
+        token = self._stage(PURPOSE_RESET, "password_resets", user_id)
+
+        reset = client.post(
+            "/auth/reset-password",
+            json={"token": token, "new_password": "ResetPassword@2026"},
+        )
+        assert reset.status_code == 200, reset.text
+
+        old = client.post("/auth/login", json={"email": email, "password": "StrongPass!2026"})
+        assert old.status_code == 401
+
+        fresh = client.post("/auth/login", json={"email": email, "password": "ResetPassword@2026"})
+        assert fresh.status_code == 200
+
+    def test_password_reset_rejects_wrong_purpose(self):
+        """A delete/verify token must NOT reset a password (purpose binding)."""
+        email = _unique_email()
+        registered = _register(email)
+        user_id = registered["user"]["id"]
+
+        token = self._stage(PURPOSE_VERIFY, "password_resets", user_id)  # wrong purpose
+
+        reset = client.post(
+            "/auth/reset-password",
+            json={"token": token, "new_password": "ResetPassword@2026"},
+        )
+        assert reset.status_code == 400
+
+    def test_email_change_request_and_confirm(self):
+        email = _unique_email()
+        registered = _register(email)
+        user_id = registered["user"]["id"]
+        new_email = _unique_email("new")
+
+        req = client.post(
+            f"/users/{user_id}/email-change",
+            json={"password": "StrongPass!2026", "new_email": new_email},
+            headers=_auth_headers(registered["access_token"]),
+        )
+        assert req.status_code == 200, req.text
+
+        token = self._stage(PURPOSE_CHANGE, "email_changes", user_id, pending_email=new_email)
+
+        confirm = client.post("/auth/confirm-email-change", json={"token": token})
+        assert confirm.status_code == 200, confirm.text
+
+        login = client.post("/auth/login", json={"email": new_email, "password": "StrongPass!2026"})
+        assert login.status_code == 200, login.text
+        assert login.json()["user"]["email"] == new_email
+
+    def test_deletion_request_and_confirm(self):
+        email = _unique_email()
+        registered = _register(email)
+        user_id = registered["user"]["id"]
+
+        req = client.post(
+            f"/users/{user_id}/deletion-request",
+            json={"password": "StrongPass!2026"},
+            headers=_auth_headers(registered["access_token"]),
+        )
+        assert req.status_code == 200, req.text
+
+        token = self._stage(PURPOSE_DELETE, "deletion_requests", user_id)
+
+        confirm = client.post("/auth/confirm-deletion", json={"token": token})
+        assert confirm.status_code == 200, confirm.text
+
+        gone = client.post("/auth/login", json={"email": email, "password": "StrongPass!2026"})
+        assert gone.status_code == 401
+

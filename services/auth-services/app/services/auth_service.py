@@ -1392,7 +1392,9 @@ class AuthService:
             - A successful reset revokes every session for the user
         """
         # Step 1 — Verify the HMAC signature
-        is_valid, user_id = verify_verification_token(raw_token)
+        is_valid, user_id = verify_verification_token(
+            raw_token, purpose=PURPOSE_PASSWORD_RESET
+        )
         if not is_valid or not user_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
