@@ -46,7 +46,7 @@ scalability and seamless integration across web and mobile applications.
 | **Third-party application registry & API keys** | ✅ Done |
 | **API key authentication (X-Identyx-Key)** | ✅ Done |
 | **Dynamic per-application CORS (resolve-by-origin)** | ✅ Done |
-| **Rate limiting by API key (per application)** | ✅ Done |
+| **Rate limiting by API key (per route group)** | ✅ Done |
 | **CI: lint, unit tests, E2E suite** | ✅ Done |
 | **OAuth 2.0 providers (Google, GitHub, …)** | 🔜 Planned |
 | **Passkeys (WebAuthn)** | 🔜 Planned |
@@ -75,7 +75,7 @@ its public proxy route (`/v1/public/applications/me`) is live.
 │                                  GATEWAY  ·  :8100                                  │
 │ SecurityHeaders → RateLimit → Metrics → CORS → ApiKeyAuth → RateLimitByKey → JWTAuth → Logging → Errors → Router  │
 │ · Redis sliding-window rate limiting (per IP and per API key)                                           │
-│    (login 10/min · register 5/min · refresh 20/min · global 100/min · per-key 600/min)                  │
+│    (login 10/min · register 5/min · refresh 20/min · global 100/min · per-key 600/min per route)        │
 │ · Dynamic per-application CORS (preflight → resolve-by-origin)                                          │
 │ · API key resolution via application-service (X-Identyx-Key header)                                      │
 │ · JWT validation via token-service + X-User-Id injection                                                │
@@ -153,7 +153,7 @@ SecurityHeaders → RateLimit → Metrics → _app (CORS → ApiKeyAuth → Rate
 | `MetricsMiddleware` | Request counters/durations for Prometheus |
 | `DynamicCORSMiddleware` | Per-application CORS: OPTIONS preflights resolved against application-service `GET /applications/resolve-by-origin` (GIN-indexed); actual responses use the resolved app `allowed_origins`, with a static `CORS_ORIGINS` fallback. Always allows `CORS_ORIGINS` |
 | `ApiKeyAuthMiddleware` | Resolves `X-Identyx-Key` via application-service `/applications/verify-key`; injects `X-Tenant-Id` + `X-Application-Id` + `allowed_origins` into scope; skips JWT for API-key-only routes |
-| `RateLimitByKeyMiddleware` | Redis sliding-window per application (`ratekey:{application_id}:{path}`), `RATE_LIMIT_PER_KEY_RPM` (default `600/min`), in parallel with the per-IP limit → `429` + `Retry-After` |
+| `RateLimitByKeyMiddleware` | Redis sliding-window per route group (`ratekey:{application_id}:{path_group}`), `RATE_LIMIT_PER_KEY_RPM` (default `600/min` per group), in parallel with the per-IP limit → `429` + `Retry-After` |
 | `JWTAuthMiddleware` | Extracts `Bearer` token, calls `POST /tokens/verify`, injects `X-User-Id`, strips caller-supplied `X-User-Id` / `X-Internal-Key` / `X-Identyx-Key` |
 | `LoggingMiddleware` | Structured JSON request logs |
 | `ErrorHandlingMiddleware` | Normalized JSON error responses |
