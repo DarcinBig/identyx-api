@@ -412,7 +412,7 @@ confirmation link is opened (delivered to the **new** address):
 
 ```
 POST /v1/users/{user_id}/email-change        # + {"password": ..., "new_email": ...}
-GET  /v1/auth/confirm-email-change?token=...  # browser click (email link)
+POST /v1/auth/confirm-email-change           # + {"token": ...} (via email link)
 ```
 
 | Step | Action | Component |
@@ -420,7 +420,7 @@ GET  /v1/auth/confirm-email-change?token=...  # browser click (email link)
 | 1 | Confirm the current password + ownership; reject same/already-registered emails | gateway → auth-service |
 | 2 | Generate an `email_change` one-time token, store its hash, publish `user.email_change_requested` | auth-service → user-service → redpanda |
 | 3 | Send the confirmation link to the new address (24 h, single use) | email-service |
-| 4 | `GET /v1/auth/confirm-email-change` extracts the token from the query string and validates it | gateway → auth-service |
+| 4 | `POST /v1/auth/confirm-email-change` validates the one-time token in the request body | gateway → auth-service |
 | 5 | Apply the new email, mark it verified, mark the token used | auth-service → user-service |
 | 6 | Publish `user.email_changed`; send a notification email to the new address confirming the change | auth-service → email-service |
 
