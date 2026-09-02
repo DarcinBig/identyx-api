@@ -455,7 +455,7 @@ Liveness probe (public).
 ## 9. Rate limiting
 
 Applied by the gateway **per IP** (sliding 60 s window, Redis) and, for requests
-authenticated by an API key, **per application** in parallel.
+authenticated by an API key, **per route group** in parallel.
 
 Per-IP limits:
 
@@ -467,11 +467,11 @@ Per-IP limits:
 | `/v1/auth/reset-password` | 3 req/min | `RATE_LIMIT_RESET_PASSWORD` |
 | `/v1/auth/verify-email` + `/resend-verification` | 5 req/min | `RATE_LIMIT_VERIFY_EMAIL` |
 
-Per-application (API key) limit — applied to every API-key-authenticated path:
+Per-route-group (API key) limit — applied to every API-key-authenticated path:
 
 | Scope | Limit (default) | Variable |
 |-------|-----------------|----------|
-| Each application (all its paths) | 600 req/min | `RATE_LIMIT_PER_KEY_RPM` |
+| Each (application × route group) | 600 req/min per group | `RATE_LIMIT_PER_KEY_RPM` |
 
 Any `429` response includes `retry_after` (seconds). The brute-force protection
 (auth-service) locks the IP after 5 failures for 15 minutes (`BRUTE_FORCE_MAX_ATTEMPTS`
@@ -499,9 +499,11 @@ Any `429` response includes `retry_after` (seconds). The brute-force protection
   with a static `CORS_ORIGINS` fallback. Unknown origins are rejected at
   preflight (`400`).
 - **Rate limiting by API key:** `RateLimitByKeyMiddleware`
-  enforces a per-application budget (`RATE_LIMIT_PER_KEY_RPM`, default
-  `600/min`) in parallel with the per-IP limit, keyed
-  `ratekey:{application_id}:{path}` → `429` + `Retry-After`.
+  enforces a per-route-group budget (`RATE_LIMIT_PER_KEY_RPM`, default
+  `600/min` per group) in parallel with the per-IP limit, keyed
+  `ratekey:{application_id}:{path_group}` → `429` + `Retry-After`.
+  An app hitting three different routes gets three independent 600/min
+  buckets so abuse on one endpoint never starves the others.
 - **Origin uniqueness:** each origin in `allowed_origins` is
   claimable by at most one application — a conflicting create/update returns
   `409`.

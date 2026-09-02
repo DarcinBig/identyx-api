@@ -1,10 +1,13 @@
 """
-Per-application (API key) rate limiting for the gateway.
+Per-route-group (API key) rate limiting for the gateway.
 
 Complements the existing per-IP limiter (`app.middleware.rate_limit`). Once
 ApiKeyAuthMiddleware has resolved the presented API key, this middleware
-enforces a requests-per-minute budget per application — identified by the
-resolved `application_id` — in parallel with the IP-based limit.
+enforces a requests-per-minute budget per route group — identified by the
+resolved `application_id` and the URL path — in parallel with the IP-based
+limit.  A single app hitting `/v1/auth/login`, `/v1/users/me` and
+`/v1/sessions` gets three independent 600/min buckets, so abuse on one
+endpoint never starves the others.
 
 Sliding window over Redis DB 2 (same instance as the IP limiter), key:
     ratekey:{application_id}:{path_group}

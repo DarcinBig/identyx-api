@@ -46,7 +46,7 @@ scalability and seamless integration across web and mobile applications.
 | **Third-party application registry & API keys** | ✅ Done |
 | **API key authentication (X-Identyx-Key)** | ✅ Done |
 | **Dynamic per-application CORS (resolve-by-origin)** | ✅ Done |
-| **Rate limiting by API key (per application)** | ✅ Done |
+| **Rate limiting by API key (per route group)** | ✅ Done |
 | **CI: lint, unit tests, E2E suite** | ✅ Done |
 | **OAuth 2.0 providers (Google, GitHub, …)** | 🔜 Planned |
 | **Passkeys (WebAuthn)** | 🔜 Planned |
@@ -60,48 +60,54 @@ scalability and seamless integration across web and mobile applications.
 
 Identyx follows an **API Gateway + microservices** pattern. A single gateway is
 the only externally reachable component; it authenticates every request and
-proxies it to one of **5 services**, each owning its own data store. A sixth —
-`application-service` (`:8006`, third-party application registry & API keys) —
-runs in the stack and is wired into the gateway via `ApiKeyAuthMiddleware`;
-its public proxy route (`/v1/public/applications/me`) is live.
+proxies it to one of **6 services**, each owning its own data store. The
+`application-service` (`:8006`) powers the third-party application registry and
+API key infrastructure, wired into the gateway via `ApiKeyAuthMiddleware` and
+`DynamicCORSMiddleware`; its public proxy route (`/v1/public/applications/me`)
+is live.
 
 ```
-                                ┌─────────────────────┐
-                                │       CLIENTS       │
-                                │  Web · Mobile · CLI │
-                                └──────────┬──────────┘
-                                           ▼
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                                  GATEWAY  ·  :8100                                  │
-│ SecurityHeaders → RateLimit → Metrics → CORS → ApiKeyAuth → RateLimitByKey → JWTAuth → Logging → Errors → Router  │
-│ · Redis sliding-window rate limiting (per IP and per API key)                                           │
-│    (login 10/min · register 5/min · refresh 20/min · global 100/min · per-key 600/min)                  │
-│ · Dynamic per-application CORS (preflight → resolve-by-origin)                                          │
-│ · API key resolution via application-service (X-Identyx-Key header)                                      │
-│ · JWT validation via token-service + X-User-Id injection                                                │
-└────┬────────────────┬────────────────┬────────────────┬────────────────┬────────────┘
-     │                │                │                │                │
-     ▼                ▼                ▼                ▼                ▼
-┌─────────┐      ┌─────────┐      ┌─────────┐      ┌─────────┐      ┌─────────┐
-│   AUTH  │      │   USER  │      │  TOKEN  │      │ SESSION │      │  EMAIL  │
-│  :8002  │      │  :8001  │      │  :8003  │      │  :8004  │      │  :8005  │
-└────┬────┘      └────┬────┘      └────┬────┘      └────┬────┘      └────┬────┘
-     │                │                │                │                │
-     ▼                ▼                ▼                ▼                │
-┌─────────┐      ┌─────────┐      ┌─────────┐      ┌─────────┐           │
-│   auth  │      │  users  │      │  DB 0   │      │ session │           │
-└─────────┘      └─────────┘      └─────────┘      └─────────┘           │
-                                                                         │
-                                                                         │
-             ┌───────────────────────────────────────────────────────────┴────────────┐
-             │ Event bus (Redpanda / Kafka)                                           │
-             │ user.registered · auth.login · auth.new_login · auth.suspicious        │
-             │ user.deletion_requested · user.email_change_requested                  │
-             └───────────────────────────────────────────────────────────┬────────────┘
-                                                                         ▼
-                                                                ┌─────────────────┐
-                                                                │   SMTP (Brevo)  │
-                                                                └─────────────────┘
+                                        ┌─────────────────────┐
+                                        │       CLIENTS       │
+                                        │  Web · Mobile · CLI │
+                                        └──────────┬──────────┘
+                                                   │
+                                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                 GATEWAY  ·  :8100                                           │
+│                                                                                             │
+│   SecurityHeaders → RateLimit → Metrics → CORS → ApiKeyAuth → RateLimitByKey → JWTAuth      │
+│   → Logging → Errors → Router                                                               │
+│                                                                                             │
+│   · Redis sliding-window rate limiting (per IP + per API key, per route group)              │
+│   · Dynamic per-application CORS (preflight → resolve-by-origin, GIN-indexed)               │
+│   · API key resolution via application-service (X-Identyx-Key header)                       │
+│   · JWT validation via token-service + X-User-Id injection                                  │
+└──────┬──────────┬──────────┬──────────┬──────────┬──────────┬───────────────────────────────┘
+       │          │          │          │          │          │
+       ▼          ▼          ▼          ▼          ▼          ▼
+  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────────┐
+  │  AUTH  │ │  USER  │ │ TOKEN  │ │SESSION │ │  EMAIL │ │APPLICATION │
+  │ :8002  │ │ :8001  │ │ :8003  │ │ :8004  │ │ :8005  │ │   :8006    │
+  └───┬────┘ └───┬────┘ └───┬────┘ └───┬────┘ └───┬────┘ └──────┬─────┘
+      │          │          │          │          │             │
+      ▼          ▼          ▼          ▼          │             ▼
+  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ │       ┌─────────┐
+  │ postgres│ │ postgres│ │ redis   │ │ postgres│ │       │ postgres│
+  │  -auth  │ │  -users │ │  DB 0   │ │-sessions│ │       │  -apps  │
+  └─────────┘ └─────────┘ └─────────┘ └─────────┘ │       └─────────┘
+                                                  │
+                                        ┌─────────┘
+                                        ▼
+                               ┌────────────────┐
+                               │    Redpanda    │
+                               │   (Kafka)      │
+                               └───────┬────────┘
+                                       │
+                                       ▼
+                              ┌────────────────┐
+                              │  SMTP (Brevo)  │
+                              └────────────────┘
 ```
 
 **Message flow in a nutshell:**
@@ -153,7 +159,7 @@ SecurityHeaders → RateLimit → Metrics → _app (CORS → ApiKeyAuth → Rate
 | `MetricsMiddleware` | Request counters/durations for Prometheus |
 | `DynamicCORSMiddleware` | Per-application CORS: OPTIONS preflights resolved against application-service `GET /applications/resolve-by-origin` (GIN-indexed); actual responses use the resolved app `allowed_origins`, with a static `CORS_ORIGINS` fallback. Always allows `CORS_ORIGINS` |
 | `ApiKeyAuthMiddleware` | Resolves `X-Identyx-Key` via application-service `/applications/verify-key`; injects `X-Tenant-Id` + `X-Application-Id` + `allowed_origins` into scope; skips JWT for API-key-only routes |
-| `RateLimitByKeyMiddleware` | Redis sliding-window per application (`ratekey:{application_id}:{path}`), `RATE_LIMIT_PER_KEY_RPM` (default `600/min`), in parallel with the per-IP limit → `429` + `Retry-After` |
+| `RateLimitByKeyMiddleware` | Redis sliding-window per route group (`ratekey:{application_id}:{path_group}`), `RATE_LIMIT_PER_KEY_RPM` (default `600/min` per group), in parallel with the per-IP limit → `429` + `Retry-After` |
 | `JWTAuthMiddleware` | Extracts `Bearer` token, calls `POST /tokens/verify`, injects `X-User-Id`, strips caller-supplied `X-User-Id` / `X-Internal-Key` / `X-Identyx-Key` |
 | `LoggingMiddleware` | Structured JSON request logs |
 | `ErrorHandlingMiddleware` | Normalized JSON error responses |
@@ -406,7 +412,7 @@ confirmation link is opened (delivered to the **new** address):
 
 ```
 POST /v1/users/{user_id}/email-change        # + {"password": ..., "new_email": ...}
-GET  /v1/auth/confirm-email-change?token=...  # browser click (email link)
+POST /v1/auth/confirm-email-change           # + {"token": ...} (via email link)
 ```
 
 | Step | Action | Component |
@@ -414,7 +420,7 @@ GET  /v1/auth/confirm-email-change?token=...  # browser click (email link)
 | 1 | Confirm the current password + ownership; reject same/already-registered emails | gateway → auth-service |
 | 2 | Generate an `email_change` one-time token, store its hash, publish `user.email_change_requested` | auth-service → user-service → redpanda |
 | 3 | Send the confirmation link to the new address (24 h, single use) | email-service |
-| 4 | `GET /v1/auth/confirm-email-change` extracts the token from the query string and validates it | gateway → auth-service |
+| 4 | `POST /v1/auth/confirm-email-change` validates the one-time token in the request body | gateway → auth-service |
 | 5 | Apply the new email, mark it verified, mark the token used | auth-service → user-service |
 | 6 | Publish `user.email_changed`; send a notification email to the new address confirming the change | auth-service → email-service |
 

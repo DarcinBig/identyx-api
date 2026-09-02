@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     rate_limit_verify_email: int = 5        # req/min per IP on /auth/verify-email + resend-verification
     rate_limit_refresh: int = 20            # req/min per IP on /auth/refresh
     rate_limit_sessions: int = 60           # req/min per IP on /sessions/*
-    rate_limit_per_key_rpm: int = 600       # req/min per API key (per application)
+    rate_limit_per_key_rpm: int = 600       # req/min per API key per route group
 
     # Proxy — set to true when a trusted reverse proxy (Cloudflare, nginx…)
     # sits in front of the gateway and sets X-Forwarded-For with the real
