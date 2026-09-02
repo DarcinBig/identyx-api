@@ -60,48 +60,54 @@ scalability and seamless integration across web and mobile applications.
 
 Identyx follows an **API Gateway + microservices** pattern. A single gateway is
 the only externally reachable component; it authenticates every request and
-proxies it to one of **5 services**, each owning its own data store. A sixth —
-`application-service` (`:8006`, third-party application registry & API keys) —
-runs in the stack and is wired into the gateway via `ApiKeyAuthMiddleware`;
-its public proxy route (`/v1/public/applications/me`) is live.
+proxies it to one of **6 services**, each owning its own data store. The
+`application-service` (`:8006`) powers the third-party application registry and
+API key infrastructure, wired into the gateway via `ApiKeyAuthMiddleware` and
+`DynamicCORSMiddleware`; its public proxy route (`/v1/public/applications/me`)
+is live.
 
 ```
-                                ┌─────────────────────┐
-                                │       CLIENTS       │
-                                │  Web · Mobile · CLI │
-                                └──────────┬──────────┘
-                                           ▼
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                                  GATEWAY  ·  :8100                                  │
-│ SecurityHeaders → RateLimit → Metrics → CORS → ApiKeyAuth → RateLimitByKey → JWTAuth → Logging → Errors → Router  │
-│ · Redis sliding-window rate limiting (per IP and per API key)                                           │
-│    (login 10/min · register 5/min · refresh 20/min · global 100/min · per-key 600/min per route)        │
-│ · Dynamic per-application CORS (preflight → resolve-by-origin)                                          │
-│ · API key resolution via application-service (X-Identyx-Key header)                                      │
-│ · JWT validation via token-service + X-User-Id injection                                                │
-└────┬────────────────┬────────────────┬────────────────┬────────────────┬────────────┘
-     │                │                │                │                │
-     ▼                ▼                ▼                ▼                ▼
-┌─────────┐      ┌─────────┐      ┌─────────┐      ┌─────────┐      ┌─────────┐
-│   AUTH  │      │   USER  │      │  TOKEN  │      │ SESSION │      │  EMAIL  │
-│  :8002  │      │  :8001  │      │  :8003  │      │  :8004  │      │  :8005  │
-└────┬────┘      └────┬────┘      └────┬────┘      └────┬────┘      └────┬────┘
-     │                │                │                │                │
-     ▼                ▼                ▼                ▼                │
-┌─────────┐      ┌─────────┐      ┌─────────┐      ┌─────────┐           │
-│   auth  │      │  users  │      │  DB 0   │      │ session │           │
-└─────────┘      └─────────┘      └─────────┘      └─────────┘           │
-                                                                         │
-                                                                         │
-             ┌───────────────────────────────────────────────────────────┴────────────┐
-             │ Event bus (Redpanda / Kafka)                                           │
-             │ user.registered · auth.login · auth.new_login · auth.suspicious        │
-             │ user.deletion_requested · user.email_change_requested                  │
-             └───────────────────────────────────────────────────────────┬────────────┘
-                                                                         ▼
-                                                                ┌─────────────────┐
-                                                                │   SMTP (Brevo)  │
-                                                                └─────────────────┘
+                                        ┌─────────────────────┐
+                                        │       CLIENTS       │
+                                        │  Web · Mobile · CLI │
+                                        └──────────┬──────────┘
+                                                   │
+                                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                 GATEWAY  ·  :8100                                           │
+│                                                                                             │
+│   SecurityHeaders → RateLimit → Metrics → CORS → ApiKeyAuth → RateLimitByKey → JWTAuth      │
+│   → Logging → Errors → Router                                                               │
+│                                                                                             │
+│   · Redis sliding-window rate limiting (per IP + per API key, per route group)              │
+│   · Dynamic per-application CORS (preflight → resolve-by-origin, GIN-indexed)               │
+│   · API key resolution via application-service (X-Identyx-Key header)                       │
+│   · JWT validation via token-service + X-User-Id injection                                  │
+└──────┬──────────┬──────────┬──────────┬──────────┬──────────┬───────────────────────────────┘
+       │          │          │          │          │          │
+       ▼          ▼          ▼          ▼          ▼          ▼
+  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────────┐
+  │  AUTH  │ │  USER  │ │ TOKEN  │ │SESSION │ │  EMAIL │ │APPLICATION │
+  │ :8002  │ │ :8001  │ │ :8003  │ │ :8004  │ │ :8005  │ │   :8006    │
+  └───┬────┘ └───┬────┘ └───┬────┘ └───┬────┘ └───┬────┘ └──────┬─────┘
+      │          │          │          │          │             │
+      ▼          ▼          ▼          ▼          │             ▼
+  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ │       ┌─────────┐
+  │ postgres│ │ postgres│ │ redis   │ │ postgres│ │       │ postgres│
+  │  -auth  │ │  -users │ │  DB 0   │ │-sessions│ │       │  -apps  │
+  └─────────┘ └─────────┘ └─────────┘ └─────────┘ │       └─────────┘
+                                                  │
+                                        ┌─────────┘
+                                        ▼
+                               ┌────────────────┐
+                               │    Redpanda    │
+                               │   (Kafka)      │
+                               └───────┬────────┘
+                                       │
+                                       ▼
+                              ┌────────────────┐
+                              │  SMTP (Brevo)  │
+                              └────────────────┘
 ```
 
 **Message flow in a nutshell:**
